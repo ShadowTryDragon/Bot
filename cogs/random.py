@@ -1,4 +1,4 @@
-import discord
+
 import random
 from discord.commands import slash_command, Option
 from discord.ext import commands

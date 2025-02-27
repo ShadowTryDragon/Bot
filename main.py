@@ -1,7 +1,6 @@
 import os
 import discord
-from discord import client
-from dotenv import load_dotenv
+
 
 
 
@@ -11,7 +10,7 @@ intents.members = True
 
 
 status = discord.Status.dnd
-activity = discord.Activity(type=discord.ActivityType.playing, name="Supporter")
+activity = discord.Activity(type=discord.ActivityType.playing, name="In Entwicklung")
 
 bot = discord.Bot(
     intents=intents,

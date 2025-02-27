@@ -5,7 +5,7 @@ from discord.ext import commands
 
 class Greet(commands.Cog):
     def __init__(self, bot):
-        self.bot = bot  # 🛠️ Hier war alles korrekt
+        self.bot = bot
 
     @slash_command(name="greet", description="Begrüßt den User")
     async def greet(self, ctx):
