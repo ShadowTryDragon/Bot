@@ -1,6 +1,8 @@
 import discord
 from discord.ext import commands
 from discord.commands import slash_command, Option
+import discord
+
 
 class Commands(commands.Cog):
     def __init__(self, bot):
@@ -27,4 +29,3 @@ class Commands(commands.Cog):
 
 def setup(bot):
     bot.add_cog(Commands(bot))
-
