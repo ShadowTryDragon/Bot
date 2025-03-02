@@ -18,10 +18,17 @@ bot = discord.Bot(
     status=status,
     activity=activity
 )
+bot.synced = False  # Initialisiere die Variable global
 
 @bot.event
 async def on_ready():
+    if not bot.synced:  # Verhindert mehrfaches Synchronisieren
+        await bot.sync_commands()
+        bot.synced = True  # Setzt die Variable auf True
+
     print(f"{bot.user} ist Online")
+
+
 
 if __name__ == "__main__":
     for filename in os.listdir("cogs"):

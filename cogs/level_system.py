@@ -10,6 +10,7 @@ class LevelSystem(commands.Cog):
         self.bot = bot
         self.bot.loop.create_task(self.create_db())
 
+
     async def create_db(self):
         """Erstellt die Datenbank und Tabelle, falls sie nicht existiert."""
         async with aiosqlite.connect("levels.db") as db:
