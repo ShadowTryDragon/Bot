@@ -1,15 +1,14 @@
-
 from discord.ext import commands
 from discord.commands import slash_command, Option
 import discord
 import aiosqlite
 import random
 
+
 class LevelSystem(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.bot.loop.create_task(self.create_db())
-
 
     async def create_db(self):
         """Erstellt die Datenbank und Tabelle, falls sie nicht existiert."""
@@ -29,39 +28,31 @@ class LevelSystem(commands.Cog):
             async with db.execute("SELECT xp, level FROM users WHERE user_id = ?", (user_id,)) as cursor:
                 return await cursor.fetchone()
 
-    async def add_xp(self, user_id: int, xp_to_add: int):
+    async def add_xp(self, user_id: int, xp_to_add: int, message: discord.Message = None):
         """Fügt XP hinzu und prüft auf Level-Up."""
         async with aiosqlite.connect("levels.db") as db:
             user = await self.get_user(user_id)
+            xp, level = user if user else (0, 1)
+            xp += xp_to_add
+            new_level = level
 
-            if user is None:
-                await db.execute("INSERT INTO users (user_id, xp, level) VALUES (?, ?, ?)", (user_id, xp_to_add, 1))
-            else:
-                xp, level = user
-                xp += xp_to_add
-                new_level = level
+            leveled_up = False
+            while xp >= 100 * new_level:
+                xp -= 100 * new_level
+                new_level += 1
+                leveled_up = True
 
-                leveled_up = False  # ✅ Variable vorab definieren
-
-                # Berechnung des Level-Ups (XP-Schwelle: 100 * aktuelles Level)
-                while xp >= 100 * new_level:
-                    xp -= 100 * new_level
-                    new_level += 1
-
-                await db.execute("UPDATE users SET xp = ?, level = ? WHERE user_id = ?", (xp, new_level, user_id))
-
-                # Wenn der Benutzer ein Level-Up erreicht hat, sende eine Nachricht!
-                if leveled_up:
-                    embed = discord.Embed(
-                        title="🎉 Level Up!",
-                        description=f"Herzlichen Glückwunsch {discord.message.author.mention}! 🎉\nDu hast Level **{new_level}** erreicht! 🚀",
-                        color=discord.Color.green()
-                    )
-                    embed.set_thumbnail(
-                        url=discord.message.author.avatar.url if discord.message.author.avatar else discord.message.author.default_avatar.url)
-                    await discord.message.channel.send(embed=embed)
-
+            await db.execute("INSERT OR REPLACE INTO users (user_id, xp, level) VALUES (?, ?, ?)",
+                             (user_id, xp, new_level))
             await db.commit()
+
+        if leveled_up and message:
+            embed = discord.Embed(
+                title="🎉 Level Up!",
+                description=f"Herzlichen Glückwunsch {message.author.mention}! 🎉\nDu hast Level **{new_level}** erreicht! 🚀",
+                color=discord.Color.green()
+            )
+            await message.channel.send(embed=embed)
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -115,17 +106,15 @@ class LevelSystem(commands.Cog):
         await ctx.respond(embed=embed)
 
     @slash_command(name="leaderboard", description="Zeigt die besten Spieler global oder nur für diesen Server.")
-    async def leaderboard(
-        self,
-        ctx,
-        server_only: Option(bool, "Nur Mitglieder dieses Servers anzeigen?", required=False, default=False)
-    ):
+    async def leaderboard(self, ctx,
+                          server_only: Option(bool, "Nur Mitglieder dieses Servers anzeigen?", required=False,
+                                              default=False)):
         """Zeigt die Top 10 Benutzer mit dem höchsten Level an. Optional nur für den aktuellen Server."""
         async with aiosqlite.connect("levels.db") as db:
             if server_only:
                 # Holen aller Benutzer aus dem Server
                 member_ids = [member.id for member in ctx.guild.members if not member.bot]
-                query = f"SELECT user_id, level, xp FROM users WHERE user_id IN ({','.join(['?']*len(member_ids))}) ORDER BY level DESC, xp DESC LIMIT 10"
+                query = f"SELECT user_id, level, xp FROM users WHERE user_id IN ({','.join(['?'] * len(member_ids))}) ORDER BY level DESC, xp DESC LIMIT 10"
                 params = member_ids
             else:
                 # Globales Leaderboard
@@ -149,15 +138,9 @@ class LevelSystem(commands.Cog):
 
         await ctx.respond(embed=embed)
 
-
-    @slash_command(name="reset-level", description="Setzt das Level eines Benutzers oder aller Spieler zurück (Admin only).")
+    @slash_command(name="reset-level",description="Setzt das Level eines Benutzers oder aller Spieler zurück (Admin only).")
     @commands.has_permissions(administrator=True)
-    async def reset_level(
-        self,
-        ctx,
-        user: Option(discord.Member, "Wähle einen Benutzer (oder leer lassen für globalen Reset)", required=False),
-        global_reset: Option(bool, "Alle Benutzer zurücksetzen? (Achtung: nicht rückgängig!)", required=False, default=False)
-    ):
+    async def reset_level(self, ctx,user: Option(discord.Member, "Wähle einen Benutzer (oder leer lassen für globalen Reset)",required=False),global_reset: Option(bool, "Alle Benutzer zurücksetzen? (Achtung: nicht rückgängig!)",required=False, default=False)):
         """Setzt das Level eines Benutzers oder aller Spieler zurück, mit Backup & Bestätigung für globalen Reset."""
         async with aiosqlite.connect("levels.db") as db:
             # Backup-Tabelle erstellen, falls nicht vorhanden
@@ -196,7 +179,8 @@ class LevelSystem(commands.Cog):
                     if str(reaction.emoji) == "✅":
                         await db.execute("DELETE FROM users")  # Alle Daten löschen
                         await db.commit()
-                        await ctx.send("🚨 **Alle Spieler wurden zurückgesetzt!** Backup wurde gespeichert.", delete_after=5)
+                        await ctx.send("🚨 **Alle Spieler wurden zurückgesetzt!** Backup wurde gespeichert.",
+                                       delete_after=5)
                     else:
                         await ctx.send("❌ Reset abgebrochen.", delete_after=5)
                 except TimeoutError:
@@ -204,35 +188,33 @@ class LevelSystem(commands.Cog):
 
             elif user:
                 # Backup für einen bestimmten Benutzer erstellen
-                await db.execute("INSERT OR REPLACE INTO backup_users SELECT * FROM users WHERE user_id = ?", (user.id,))
+                await db.execute("INSERT OR REPLACE INTO backup_users SELECT * FROM users WHERE user_id = ?",
+                                 (user.id,))
                 await db.execute("DELETE FROM users WHERE user_id = ?", (user.id,))
                 await db.commit()
                 await ctx.respond(f"✅ {user.mention} wurde zurückgesetzt! Backup wurde gespeichert.", ephemeral=True)
 
             else:
-                await ctx.respond("❌ Bitte gib entweder einen Benutzer an oder setze `global_reset` auf `True`.", ephemeral=True)
+                await ctx.respond("❌ Bitte gib entweder einen Benutzer an oder setze `global_reset` auf `True`.",
+                                  ephemeral=True)
 
-
-@slash_command(name="restore-level",
-               description="Stellt das Level eines Benutzers aus dem Backup wieder her (Admin only).")
-@commands.has_permissions(administrator=True)
-async def restore_level(self, ctx, user: Option(discord.Member, "Wähle einen Benutzer für die Wiederherstellung")):
-    """Stellt die XP und das Level eines Benutzers aus dem Backup wieder her (nur Admins)."""
-    async with aiosqlite.connect("levels.db") as db:
-        async with db.execute("SELECT xp, level FROM backup_users WHERE user_id = ?", (user.id,)) as cursor:
-            backup_data = await cursor.fetchone()
-
-        if backup_data is None:
-            await ctx.respond(f"❌ Kein Backup für {user.mention} gefunden!", ephemeral=True)
-            return
-
-        xp, level = backup_data
-
-        # Wiederherstellen der Daten
-        await db.execute("INSERT OR REPLACE INTO users (user_id, xp, level) VALUES (?, ?, ?)", (user.id, xp, level))
-        await db.commit()
-
-        await ctx.respond(f"✅ {user.mention} wurde auf Level {level} mit {xp} XP wiederhergestellt!", ephemeral=True)
+    @slash_command(name="restore-level",description="Stellt das Level eines Benutzers aus dem Backup wieder her (Admin only).")
+    @commands.has_permissions(administrator=True)
+    async def restore_level(self, ctx, user: Option(discord.Member, "Wähle einen Benutzer für die Wiederherstellung")):
+        """Stellt die XP und das Level eines Benutzers aus dem Backup wieder her (nur Admins)."""
+        async with aiosqlite.connect("levels.db") as db:
+            async with db.execute("SELECT xp, level FROM backup_users WHERE user_id = ?", (user.id,)) as cursor:
+                backup_data = await cursor.fetchone()
+                if backup_data is None:
+                    await ctx.respond(f"❌ Kein Backup für {user.mention} gefunden!", ephemeral=True)
+                    return
+                xp, level = backup_data
+                # Wiederherstellen der Daten
+                await db.execute("INSERT OR REPLACE INTO users (user_id, xp, level) VALUES (?, ?, ?)",
+                                 (user.id, xp, level))
+                await db.commit()
+                await ctx.respond(f"✅ {user.mention} wurde auf Level {level} mit {xp} XP wiederhergestellt!",
+                                  ephemeral=True)
 
 
 def setup(bot):
