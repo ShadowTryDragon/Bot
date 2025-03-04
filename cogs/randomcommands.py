@@ -125,6 +125,35 @@ class RandomChoice(commands.Cog):
         # Nachricht senden
         await ctx.respond(embed=embed, file=file)
 
+    @slash_command(name="roulette", description="Spiele russisches Roulette und teste dein Glück! 💀")
+    async def roulette(self,ctx,mode: Option(str, "Wähle den Modus", choices=["6-Schuss", "12-Schuss", "1-Schuss"], default="6-Schuss")):
+        """Simuliert russisches Roulette mit verschiedenen Chancen."""
+        if mode == "6-Schuss":
+            chance = 1 / 6  # 16,67% Verlustchance
+        elif mode == "12-Schuss":
+            chance = 1 / 12  # 8,33% Verlustchance
+        else:
+            chance = 1 / 1  # 100% Verlustchance (Spaßmodus!)
+
+        # Zufallsgenerator entscheidet
+        if random.random() < chance:
+            embed = discord.Embed(
+                title="💥 *BOOM!* 💥",
+                description=f"Oh nein, {ctx.author.mention} hat verloren! 😵",
+                color=discord.Color.red()
+            )
+            embed.set_image(url="https://tenor.com/de/view/finger-gun-barney-himym-nph-neil-patrick-harris-gif-4524247")  # Lustige Explosion
+        else:
+            embed = discord.Embed(
+                title="🔫 *Klick... nichts passiert!*",
+                description=f"Glück gehabt, {ctx.author.mention}! 🎉 Du hast überlebt! 😎",
+                color=discord.Color.green()
+            )
+            embed.set_image(url="https://tenor.com/de/view/finger-gun-barney-himym-nph-neil-patrick-harris-gif-4524247")  # Spannende Szene
+
+        await ctx.respond(embed=embed)
+
+
 
 
 
