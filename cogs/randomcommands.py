@@ -6,11 +6,15 @@ import discord
 from discord.commands import slash_command, Option
 from discord.ext import commands
 
+from cooldown_handler import check_cooldown
+
+
 class RandomChoice(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
     @slash_command(name="random", description="Wählt zufällig eine Option aus deinen Eingaben")
+    @commands.check(check_cooldown)  # ✅ Cooldown für diesen Befehl aktivieren
     async def random_choice(self,ctx,option1: Option(str, "Erste Option"),option2: Option(str, "Zweite Option", default=None),option3: Option(str, "Dritte Option", default=None),option4: Option(str, "Vierte Option", default=None), option5: Option(str, "Fünfte Option", default=None)):
         # Alle nicht-leeren Optionen in eine Liste packen
         options = [option for option in [option1, option2, option3, option4, option5] if option]
@@ -22,6 +26,7 @@ class RandomChoice(commands.Cog):
         await ctx.respond(f"🎲 Ich habe mich für **{choice}** entschieden!")
 
     @slash_command(name="ask", description="Stelle eine Frage und erhalte eine zufällige Antwort!")
+    @commands.check(check_cooldown)  # ✅ Cooldown für diesen Befehl aktivieren
     async def ask(self,ctx,frage: Option(str, "Stelle deine Frage")):
         """Gibt eine zufällige Antwort auf eine Frage des Users"""
         antworten = [
@@ -70,7 +75,9 @@ class RandomChoice(commands.Cog):
         image_bytes.seek(0)
         return image_bytes
 
+
     @slash_command(name="ship", description="Shippe dich mit jemandem und finde eure Kompatibilität heraus!")
+    @commands.check(check_cooldown)  # ✅ Cooldown für diesen Befehl aktivieren
     async def ship(self,ctx,user1: Option(discord.Member, "Wähle die erste Person"),user2: Option(discord.Member, "Wähle die zweite Person (oder lass es leer für dich selbst)", required=False)):
         """Shippt zwei User und gibt eine zufällige Kompatibilitätsbewertung aus."""
         user2 = user2 or ctx.author  # Falls user2 nicht angegeben ist, wird der User selbst genommen
@@ -126,6 +133,7 @@ class RandomChoice(commands.Cog):
         await ctx.respond(embed=embed, file=file)
 
     @slash_command(name="roulette", description="Spiele russisches Roulette und teste dein Glück! 💀")
+    @commands.check(check_cooldown)  # ✅ Cooldown für diesen Befehl aktivieren
     async def roulette(self,ctx,mode: Option(str, "Wähle den Modus", choices=["6-Schuss", "12-Schuss", "1-Schuss"], default="6-Schuss")):
         """Simuliert russisches Roulette mit verschiedenen Chancen."""
         if mode == "6-Schuss":

@@ -4,6 +4,8 @@ import discord
 import aiosqlite
 import random
 
+from cooldown_handler import check_cooldown
+
 
 class LevelSystem(commands.Cog):
     def __init__(self, bot):
@@ -65,6 +67,7 @@ class LevelSystem(commands.Cog):
         await self.add_xp(message.author.id, xp_to_add)
 
     @slash_command(name="level", description="Zeigt dein detailliertes Level-Profil an.")
+    @commands.check(check_cooldown)  # ✅ Cooldown für diesen Befehl aktivieren
     async def level(self, ctx, user: Option(discord.Member, "Wähle einen Benutzer", required=False) = None):
         """Zeigt das Level, XP und den Rang eines Benutzers an."""
         user = user or ctx.author
@@ -107,6 +110,7 @@ class LevelSystem(commands.Cog):
         await ctx.respond(embed=embed)
 
     @slash_command(name="leaderboard", description="Zeigt die besten Spieler global oder nur für diesen Server.")
+    @commands.check(check_cooldown)  # ✅ Cooldown für diesen Befehl aktivieren
     async def leaderboard(self, ctx, server_only: Option(bool, "Nur Mitglieder dieses Servers anzeigen?", required=False,default=False)):
         """Zeigt die Top 10 Benutzer mit dem höchsten Level an. Optional nur für den aktuellen Server."""
         async with aiosqlite.connect("levels.db") as db:

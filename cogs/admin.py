@@ -79,10 +79,7 @@ class Admin(commands.Cog):
         except discord.HTTPException:
             await ctx.respond("Fehler beim Versuch, den Benutzer zu timeouten.", ephemeral=True)
 
-    @commands.Cog.listener()
-    async def on_application_command_error(self, ctx, error):
-        await ctx.respond(f"Es ist ein Fehler Aufgetreten: ```{error}`")
-        raise error
+
 
 
 def setup(bot):

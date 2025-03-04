@@ -7,6 +7,10 @@ import discord
 
 intents = discord.Intents.default()
 intents.members = True
+intents.guilds = True  # Benötigt für Server-Informationen
+intents.messages = True  # Notwendig für Nachrichten-Tracking
+intents.message_content = True  # Falls der Bot Nachrichten analysieren soll (z. B. für Blacklist-Wörter)
+intents.reactions = True  # Ermöglicht das Tracking von Reaktionen
 
 
 status = discord.Status.dnd
@@ -14,7 +18,6 @@ activity = discord.Activity(type=discord.ActivityType.playing, name="In Entwickl
 
 bot = discord.Bot(
     intents=intents,
-    debug_guilds=[523109595292368907],
     status=status,
     activity=activity
 )

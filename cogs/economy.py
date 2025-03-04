@@ -6,6 +6,8 @@ import datetime
 from discord import slash_command
 from discord.ext import commands
 
+from cooldown_handler import check_cooldown
+
 DATABASE = "economy.db"
 
 
@@ -148,12 +150,14 @@ class Economy(commands.Cog):
         conn.close()
         print(f"✅ {member.name} wurde in die Datenbank eingefügt.")
     @slash_command(name="balance", description="Zeigt deinen Kontostand")
+    @commands.check(check_cooldown)  # ✅ Cooldown für diesen Befehl aktivieren
     async def balance(self, ctx):
         """Zeigt den Wallet- und Bank-Kontostand"""
         balance, bank = self.get_balance(ctx.author.id)
         await ctx.respond(f"💰 Wallet: **{balance} Coins**\n🏦 Bank: **{bank} Coins**")
 
     @slash_command(name="daily", description="Erhalte einmal pro Tag Coins")
+    @commands.check(check_cooldown)  # ✅ Cooldown für diesen Befehl aktivieren
     async def daily(self, ctx):
         """User können einmal pro Tag Coins abholen"""
         user_id = ctx.author.id
@@ -178,6 +182,7 @@ class Economy(commands.Cog):
         conn.close()
 
     @slash_command(name="deposit", description="Lege Geld auf die Bank")
+    @commands.check(check_cooldown)  # ✅ Cooldown für diesen Befehl aktivieren
     async def deposit(self, ctx, amount: int):
         """User können Geld auf die Bank legen"""
         balance, bank = self.get_balance(ctx.author.id)
@@ -190,6 +195,7 @@ class Economy(commands.Cog):
         await ctx.respond(f"✅ Du hast **{amount} Coins** auf die Bank eingezahlt!")
 
     @slash_command(name="withdraw", description="Hebe Geld von der Bank ab")
+    @commands.check(check_cooldown)  # ✅ Cooldown für diesen Befehl aktivieren
     async def withdraw(self, ctx, amount: int):
         """User können Geld von der Bank abheben"""
         balance, bank = self.get_balance(ctx.author.id)
@@ -202,6 +208,7 @@ class Economy(commands.Cog):
         await ctx.respond(f"✅ Du hast **{amount} Coins** von der Bank abgehoben!")
 
     @slash_command(name="shop", description="Zeigt den virtuellen Shop")
+    @commands.check(check_cooldown)  # ✅ Cooldown für diesen Befehl aktivieren
     async def slash_command(self, ctx):
         """Zeigt eine Liste von kaufbaren Items"""
         embed = discord.Embed(title="🛒 Virtueller Shop", color=discord.Color.gold())
@@ -224,6 +231,7 @@ class Economy(commands.Cog):
         conn.close()
 
     @commands.slash_command(name="buy", description="Kaufe ein Item aus dem Shop")
+    @commands.check(check_cooldown)  # ✅ Cooldown für diesen Befehl aktivieren
     async def buy(self, ctx, item: str):
         """User können Items kaufen, falls sie genug Coins haben"""
         prices = {"glückshut": 5000, "diebesmaske": 3000}
@@ -245,6 +253,7 @@ class Economy(commands.Cog):
         await ctx.respond(f"✅ Du hast **{item.capitalize()}** für **{price} Coins** gekauft!")
 
     @commands.slash_command(name="gamble", description="Spiele und verdopple dein Geld oder verliere es")
+    @commands.check(check_cooldown)  # ✅ Cooldown für diesen Befehl aktivieren
     async def gamble(self, ctx, amount: int):
         """User können Coins setzen – mit Bonus, falls sie einen Glückshut haben"""
         balance, _ = self.get_balance(ctx.author.id)
@@ -283,6 +292,7 @@ class Economy(commands.Cog):
         print(f"✅ Glücksspiel gespeichert: {ctx.author} - {gamble_result}")
 
     @commands.slash_command(name="dailyquest",description="Zeigt deine aktuelle Tagesquest oder gibt eine neue, falls 24 Stunden vorbei sind")
+    @commands.check(check_cooldown)  # ✅ Cooldown für diesen Befehl aktivieren
     async def dailyquest(self, ctx):
         """Zeigt die aktuelle Tagesquest oder vergibt eine neue nach 24 Stunden"""
         quests = [
@@ -345,8 +355,8 @@ class Economy(commands.Cog):
 
         await ctx.respond(embed=embed)
 
-    @commands.slash_command(name="completequest",
-                            description="Überprüft und beendet deine Tagesquest, wenn sie abgeschlossen ist.")
+    @commands.slash_command(name="completequest",description="Überprüft und beendet deine Tagesquest, wenn sie abgeschlossen ist.")
+    @commands.check(check_cooldown)  # ✅ Cooldown für diesen Befehl aktivieren
     async def completequest(self, ctx):
         """Prüft, ob der User seine Tagesquest erfüllt hat und gibt die Belohnung."""
         conn = sqlite3.connect(DATABASE)
@@ -441,6 +451,7 @@ class Economy(commands.Cog):
             print(f"❌ Konnte {ctx.author} keine DM senden.")
 
     @commands.slash_command(name="rob", description="Versuche, einen User auszurauben")
+    @commands.check(check_cooldown)  # ✅ Cooldown für diesen Befehl aktivieren
     async def rob(self, ctx, member: discord.Member):
         """User können versuchen, andere auszurauben (nur Wallet-Geld, mit Item-Bonus)"""
         if ctx.author.id == member.id:
@@ -474,6 +485,7 @@ class Economy(commands.Cog):
                 f"🚔 Pech gehabt! {member.mention} hat dich erwischt! Du verlierst **100 Coins** als Strafe! 😡")
 
     @commands.slash_command(name="give", description="Sende Coins an einen anderen User")
+    @commands.check(check_cooldown)  # ✅ Cooldown für diesen Befehl aktivieren
     async def give(self, ctx, member: discord.Member, amount: int):
         sender_id = ctx.author.id
         receiver_id = member.id
@@ -517,6 +529,7 @@ class Economy(commands.Cog):
         await ctx.respond(f"✅ {ctx.author.mention} hat **{amount} Coins** an {member.mention} gesendet!")
 
     @commands.slash_command(name="top", description="Zeigt das reichste Ranking auf dem Server")
+    @commands.check(check_cooldown)  # ✅ Cooldown für diesen Befehl aktivieren
     async def top(self, ctx):
         """Zeigt ein Leaderboard mit den reichsten Spielern (Wallet + Bank kombiniert)"""
         conn = sqlite3.connect(DATABASE)
