@@ -40,19 +40,20 @@ class LevelSystem(commands.Cog):
             while xp >= 100 * new_level:
                 xp -= 100 * new_level
                 new_level += 1
-                leveled_up = True
+                leveled_up = True  # ✅ Level-Up erkannt!
 
             await db.execute("INSERT OR REPLACE INTO users (user_id, xp, level) VALUES (?, ?, ?)",
                              (user_id, xp, new_level))
             await db.commit()
 
-        if leveled_up and message:
+        if leveled_up and message:  # ✅ Level-Up Nachricht nur senden, wenn `message` vorhanden ist
             embed = discord.Embed(
                 title="🎉 Level Up!",
-                description=f"Herzlichen Glückwunsch {message.author.mention}! 🎉\nDu hast Level **{new_level}** erreicht! 🚀",
+                description=f"Herzlichen Glückwunsch {message.author.mention}! 🎉\n"
+                            f"Du hast Level **{new_level}** erreicht! 🚀",
                 color=discord.Color.green()
             )
-            await message.channel.send(embed=embed)
+            await message.channel.send(embed=embed)  # ✅ Level-Up Nachricht senden
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -106,9 +107,7 @@ class LevelSystem(commands.Cog):
         await ctx.respond(embed=embed)
 
     @slash_command(name="leaderboard", description="Zeigt die besten Spieler global oder nur für diesen Server.")
-    async def leaderboard(self, ctx,
-                          server_only: Option(bool, "Nur Mitglieder dieses Servers anzeigen?", required=False,
-                                              default=False)):
+    async def leaderboard(self, ctx, server_only: Option(bool, "Nur Mitglieder dieses Servers anzeigen?", required=False,default=False)):
         """Zeigt die Top 10 Benutzer mit dem höchsten Level an. Optional nur für den aktuellen Server."""
         async with aiosqlite.connect("levels.db") as db:
             if server_only:
@@ -138,6 +137,59 @@ class LevelSystem(commands.Cog):
 
         await ctx.respond(embed=embed)
 
+    @slash_command(name="modifylevel", description="Füge einem Benutzer XP hinzu oder entferne sie (Admin only).")
+    @commands.has_permissions(administrator=True)
+    async def modifylevel(self, ctx, user: discord.Member, xp_amount: int):
+        """Ermöglicht Administratoren, XP hinzuzufügen oder zu entfernen."""
+        async with aiosqlite.connect("levels.db") as db:
+            user_data = await self.get_user(user.id)
+
+            if user_data is None:
+                await ctx.respond(f"❌ {user.mention} ist noch nicht im Level-System registriert.", ephemeral=True)
+                return
+
+            current_xp, level = user_data
+            new_xp = max(0, current_xp + xp_amount)  # Verhindert negative XP
+
+            # Level-Update prüfen
+            new_level = level
+            leveled_up = False
+
+            if xp_amount > 0:  # XP hinzufügen
+                while new_xp >= 100 * new_level:
+                    new_xp -= 100 * new_level
+                    new_level += 1
+                    leveled_up = True
+            else:  # XP entfernen (kein Downgrade unter Level 1)
+                while new_xp < 0 and new_level > 1:
+                    new_level -= 1
+                    new_xp += 100 * new_level
+
+            # Datenbank aktualisieren
+            await db.execute("UPDATE users SET xp = ?, level = ? WHERE user_id = ?", (new_xp, new_level, user.id))
+            await db.commit()
+
+        # Antwort senden
+        xp_action = "erhalten" if xp_amount > 0 else "verloren"
+        embed = discord.Embed(
+            title="🔧 XP-Modifikation",
+            description=f"{user.mention} hat **{abs(xp_amount)} XP** {xp_action}.",
+            color=discord.Color.green() if xp_amount > 0 else discord.Color.red()
+        )
+        embed.add_field(name="📊 Neues Level", value=f"**{new_level}**", inline=True)
+        embed.add_field(name="🔹 Neue XP", value=f"**{new_xp}** XP", inline=True)
+
+        await ctx.respond(embed=embed)
+
+        # Falls ein Level-Up passiert, Level-Up-Nachricht senden
+        if leveled_up:
+            level_embed = discord.Embed(
+                title="🎉 Level Up!",
+                description=f"Herzlichen Glückwunsch {user.mention}! 🎉\nDu hast Level **{new_level}** erreicht! 🚀",
+                color=discord.Color.gold()
+            )
+            await ctx.channel.send(embed=level_embed)
+
     @slash_command(name="reset-level",description="Setzt das Level eines Benutzers oder aller Spieler zurück (Admin only).")
     @commands.has_permissions(administrator=True)
     async def reset_level(self, ctx,user: Option(discord.Member, "Wähle einen Benutzer (oder leer lassen für globalen Reset)",required=False),global_reset: Option(bool, "Alle Benutzer zurücksetzen? (Achtung: nicht rückgängig!)",required=False, default=False)):
@@ -157,7 +209,6 @@ class LevelSystem(commands.Cog):
                 await db.execute("DELETE FROM backup_users")  # Altes Backup löschen
                 await db.execute("INSERT INTO backup_users SELECT * FROM users")  # Backup erstellen
                 await db.commit()
-
                 # Schritt 2: Bestätigung einholen
                 confirm_embed = discord.Embed(
                     title="⚠ Bestätigung erforderlich!",
@@ -170,7 +221,6 @@ class LevelSystem(commands.Cog):
                 confirmation_message = await ctx.respond(embed=confirm_embed)
                 await confirmation_message.add_reaction("✅")
                 await confirmation_message.add_reaction("❌")
-
                 def check(reaction, user):
                     return user == ctx.author and str(reaction.emoji) in ["✅", "❌"]
 
@@ -197,6 +247,7 @@ class LevelSystem(commands.Cog):
             else:
                 await ctx.respond("❌ Bitte gib entweder einen Benutzer an oder setze `global_reset` auf `True`.",
                                   ephemeral=True)
+
 
     @slash_command(name="restore-level",description="Stellt das Level eines Benutzers aus dem Backup wieder her (Admin only).")
     @commands.has_permissions(administrator=True)
