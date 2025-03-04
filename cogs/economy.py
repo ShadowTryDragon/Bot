@@ -2,6 +2,8 @@ import discord
 import sqlite3
 import random
 import datetime
+
+from discord import slash_command
 from discord.ext import commands
 
 DATABASE = "economy.db"
@@ -11,6 +13,8 @@ class Economy(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.db_init()
+
+
 
     def db_init(self):
         """Erstellt die Economy-Tabelle, falls sie nicht existiert"""
@@ -24,7 +28,8 @@ class Economy(commands.Cog):
                     last_daily TEXT,
                     last_quest TEXT,
                     quest_status TEXT DEFAULT 'offen',
-                    quest_reward INTEGER DEFAULT 0
+                    quest_reward INTEGER DEFAULT 0,
+                    quest_description TEXT
                 )
             """)
         cursor.execute("""
@@ -66,8 +71,6 @@ class Economy(commands.Cog):
             """)
         conn.commit()
         conn.close()
-
-
     def get_balance(self, user_id):
         """Holt den aktuellen Kontostand (Wallet & Bank)"""
         conn = sqlite3.connect(DATABASE)
@@ -76,7 +79,6 @@ class Economy(commands.Cog):
         result = cursor.fetchone()
         conn.close()
         return result if result else (0, 0)
-
     def update_balance(self, user_id, wallet_change=0, bank_change=0):
         """Fügt Coins zur Wallet oder Bank hinzu/zieht sie ab"""
         conn = sqlite3.connect(DATABASE)
@@ -86,7 +88,6 @@ class Economy(commands.Cog):
             (user_id, wallet_change, bank_change, wallet_change, bank_change))
         conn.commit()
         conn.close()
-
     def add_item(self, user_id, item):
         """Fügt ein Item ins Inventar hinzu"""
         conn = sqlite3.connect(DATABASE)
@@ -96,7 +97,6 @@ class Economy(commands.Cog):
             (user_id, item))
         conn.commit()
         conn.close()
-
     def has_item(self, user_id, item):
         """Prüft, ob der User ein bestimmtes Item besitzt"""
         conn = sqlite3.connect(DATABASE)
@@ -105,7 +105,6 @@ class Economy(commands.Cog):
         result = cursor.fetchone()
         conn.close()
         return result[0] if result else 0
-
     @commands.Cog.listener()
     async def on_ready(self):
         """Fügt alle Mitglieder zur Datenbank hinzu, sobald der Bot bereit ist"""
@@ -128,7 +127,6 @@ class Economy(commands.Cog):
         conn.commit()
         conn.close()
         print("✅  Alle Mitglieder wurden zur Datenbank hinzugefügt.")
-
     @commands.Cog.listener()
     async def on_member_join(self, member):
         """Fügt neue Mitglieder automatisch in alle Tabellen ein."""
@@ -149,14 +147,13 @@ class Economy(commands.Cog):
         conn.commit()
         conn.close()
         print(f"✅ {member.name} wurde in die Datenbank eingefügt.")
-
-    @commands.slash_command(name="balance", description="Zeigt deinen Kontostand")
+    @slash_command(name="balance", description="Zeigt deinen Kontostand")
     async def balance(self, ctx):
         """Zeigt den Wallet- und Bank-Kontostand"""
         balance, bank = self.get_balance(ctx.author.id)
         await ctx.respond(f"💰 Wallet: **{balance} Coins**\n🏦 Bank: **{bank} Coins**")
 
-    @commands.slash_command(name="daily", description="Erhalte einmal pro Tag Coins")
+    @slash_command(name="daily", description="Erhalte einmal pro Tag Coins")
     async def daily(self, ctx):
         """User können einmal pro Tag Coins abholen"""
         user_id = ctx.author.id
@@ -180,7 +177,7 @@ class Economy(commands.Cog):
 
         conn.close()
 
-    @commands.slash_command(name="deposit", description="Lege Geld auf die Bank")
+    @slash_command(name="deposit", description="Lege Geld auf die Bank")
     async def deposit(self, ctx, amount: int):
         """User können Geld auf die Bank legen"""
         balance, bank = self.get_balance(ctx.author.id)
@@ -192,7 +189,7 @@ class Economy(commands.Cog):
         self.update_balance(ctx.author.id, -amount, amount)
         await ctx.respond(f"✅ Du hast **{amount} Coins** auf die Bank eingezahlt!")
 
-    @commands.slash_command(name="withdraw", description="Hebe Geld von der Bank ab")
+    @slash_command(name="withdraw", description="Hebe Geld von der Bank ab")
     async def withdraw(self, ctx, amount: int):
         """User können Geld von der Bank abheben"""
         balance, bank = self.get_balance(ctx.author.id)
@@ -204,8 +201,8 @@ class Economy(commands.Cog):
         self.update_balance(ctx.author.id, amount, -amount)
         await ctx.respond(f"✅ Du hast **{amount} Coins** von der Bank abgehoben!")
 
-    @commands.slash_command(name="shop", description="Zeigt den virtuellen Shop")
-    async def shop(self, ctx):
+    @slash_command(name="shop", description="Zeigt den virtuellen Shop")
+    async def slash_command(self, ctx):
         """Zeigt eine Liste von kaufbaren Items"""
         embed = discord.Embed(title="🛒 Virtueller Shop", color=discord.Color.gold())
         embed.add_field(name="🎩 Glückshut", value="5000 Coins - Erhöht die Casino-Gewinnchance", inline=False)
@@ -217,10 +214,8 @@ class Economy(commands.Cog):
         """Speichert jede gesendete Nachricht in der Datenbank"""
         if message.author.bot:
             return  # Bots ignorieren
-
         conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
-
         cursor.execute("""
             INSERT INTO messages (user_id, timestamp) VALUES (?, CURRENT_TIMESTAMP)
         """, (message.author.id,))
@@ -285,44 +280,70 @@ class Economy(commands.Cog):
         conn.commit()
         conn.close()
 
-    @commands.slash_command(name="dailyquest", description="Erhalte eine tägliche Aufgabe für Coins")
+        print(f"✅ Glücksspiel gespeichert: {ctx.author} - {gamble_result}")
+
+    @commands.slash_command(name="dailyquest",description="Zeigt deine aktuelle Tagesquest oder gibt eine neue, falls 24 Stunden vorbei sind")
     async def dailyquest(self, ctx):
-        """Jeder User bekommt eine zufällige Tagesquest"""
+        """Zeigt die aktuelle Tagesquest oder vergibt eine neue nach 24 Stunden"""
         quests = [
             "Sende eine freundliche Nachricht in den Chat.",
             "Gewinne eine Wette im Casino.",
             "Schicke einem Freund 50 Coins.",
 
         ]
-        quest_rewards = {"Sende eine freundliche Nachricht in den Chat.": 200,
-                         "Gewinne eine Wette im Casino.": 300,
-                         "Schicke einem Freund 50 Coins.": 150,
-                     }
+        quest_rewards = {
+            "Sende eine freundliche Nachricht in den Chat.": 200,
+            "Gewinne eine Wette im Casino.": 300,
+            "Schicke einem Freund 50 Coins.": 150,
+
+        }
 
         conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
-        cursor.execute("SELECT last_quest, quest_status FROM users WHERE user_id = ?", (ctx.author.id,))
+
+        # 🔍 Aktuelle Quest abrufen
+        cursor.execute("SELECT last_quest, quest_status, quest_reward, quest_description FROM users WHERE user_id = ?",
+                       (ctx.author.id,))
         result = cursor.fetchone()
-        today = datetime.date.today().isoformat()
 
-        if result and result[0] == today and result[1] == "offen":
-            await ctx.respond("❌ Du hast bereits eine aktive Tagesquest!")
-            return
-        elif result and result[0] == today and result[1] == "abgeschlossen":
-            await ctx.respond("✅ Du hast deine Tagesquest bereits abgeschlossen.")
-            return
+        now = datetime.datetime.now()
+        last_quest_time = datetime.datetime.strptime(result[0], "%Y-%m-%d %H:%M:%S") if result and result[0] else None
+        quest_status, quest_reward, current_quest = result[1:] if result else ("offen", 0, "Keine Quest vorhanden.")
 
-        quest = random.choice(quests)
-        reward = quest_rewards[quest]
+        # Prüfen, ob 24 Stunden seit der letzten Quest vergangen sind
+        if not last_quest_time or (now - last_quest_time).total_seconds() >= 86400:  # 86400 Sekunden = 24 Stunden
+            new_quest = random.choice(quests)
+            quest_reward = quest_rewards[new_quest]
 
-        cursor.execute(
-            "INSERT INTO users (user_id, last_quest, quest_status, quest_reward) VALUES (?, ?, 'offen', ?) ON CONFLICT(user_id) DO UPDATE SET last_quest = ?, quest_status = 'offen', quest_reward = ?",
-            (ctx.author.id, today, reward, today, reward))
-        conn.commit()
+            cursor.execute("""
+                UPDATE users 
+                SET last_quest = ?, quest_status = 'offen', quest_reward = ?, quest_description = ? 
+                WHERE user_id = ?
+            """, (now.strftime("%Y-%m-%d %H:%M:%S"), quest_reward, new_quest, ctx.author.id))
+
+            conn.commit()
+            current_quest = new_quest  # Aktualisierte Quest setzen
+            quest_status = "offen"
+
         conn.close()
 
-        await ctx.respond(
-            f"📜 Deine Tagesquest: **{quest}**\nBelohnung: **{reward} Coins**\nMelde dich nach Erfüllung bei einem Admin!")
+        # 📝 Embed zur Anzeige der aktuellen Quest
+        embed = discord.Embed(title="📜 Deine Tagesquest", color=discord.Color.blue())
+        embed.add_field(name="🔹 Aufgabe:", value=f"**{current_quest}**", inline=False)
+        embed.add_field(name="💰 Belohnung:", value=f"**{quest_reward} Coins**", inline=False)
+
+        # Falls die Quest schon abgeschlossen ist
+        if quest_status == "abgeschlossen":
+            embed.color = discord.Color.green()
+            embed.set_footer(text="✅ Diese Quest wurde bereits abgeschlossen.")
+
+        # Falls die Quest noch offen ist, berechne die verbleibende Zeit
+        elif last_quest_time:
+            remaining_time = 86400 - (now - last_quest_time).total_seconds()
+            hours, minutes = divmod(remaining_time // 60, 60)
+            embed.set_footer(text=f"🔄 Nächste Quest in {int(hours)} Stunden und {int(minutes)} Minuten verfügbar.")
+
+        await ctx.respond(embed=embed)
 
     @commands.slash_command(name="completequest",
                             description="Überprüft und beendet deine Tagesquest, wenn sie abgeschlossen ist.")
@@ -331,8 +352,8 @@ class Economy(commands.Cog):
         conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
 
-        # Aktuelle Quest des Nutzers abrufen
-        cursor.execute("SELECT last_quest, quest_status, quest_reward, quest_status FROM users WHERE user_id = ?",
+        # 🛠 Richtige Spalten aus der Datenbank abrufen!
+        cursor.execute("SELECT last_quest, quest_status, quest_reward, quest_description FROM users WHERE user_id = ?",
                        (ctx.author.id,))
         result = cursor.fetchone()
 
@@ -340,15 +361,39 @@ class Economy(commands.Cog):
             await ctx.respond("❌ Du hast keine aktive Tagesquest.", ephemeral=True)
             return
 
-        quest_date, quest_status, quest_reward, current_quest = result
+        quest_date, quest_status, quest_reward, current_quest = result  # 🟢 Jetzt wird die Quest richtig geholt!
 
         if quest_status != "offen":
-            await ctx.respond("✅ Deine Tagesquest wurde bereits abgeschlossen oder existiert nicht.", ephemeral=True)
+            embed = discord.Embed(title="🎯 Quest Status", description="✅ Deine Tagesquest wurde bereits abgeschlossen!",
+                                  color=discord.Color.green())
+            await ctx.respond(embed=embed)
             return
 
-        # Quest-Bedingungen aus der Datenbank prüfen
-        cursor.execute("SELECT COUNT(*) FROM messages WHERE user_id = ? AND timestamp >= ?",
-                       (ctx.author.id, quest_date))
+        import datetime
+
+        # 🛠 `quest_date` aus der DB abrufen
+        cursor.execute("SELECT last_quest FROM users WHERE user_id = ?", (ctx.author.id,))
+        result = cursor.fetchone()
+        quest_date = result[0] if result else None  # `None`, falls kein Wert vorhanden ist
+
+        if quest_date:
+            try:
+                # Falls `quest_date` bereits ein String ist, in `datetime` umwandeln
+                quest_date = datetime.datetime.strptime(quest_date, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                print(f"❌ Fehler: `quest_date` hat falsches Format: {quest_date}")  # Debugging
+                await ctx.respond("❌ Ein Fehler ist aufgetreten. Bitte kontaktiere einen Admin.", ephemeral=True)
+                return
+
+            # In das richtige Format für SQLite umwandeln
+            quest_date = quest_date.strftime("%Y-%m-%d %H:%M:%S")
+
+        # 🛠 SQL-Abfrage mit richtigem `quest_date`
+        cursor.execute("""
+            SELECT COUNT(*) FROM messages 
+            WHERE user_id = ? 
+            AND datetime(timestamp) >= datetime(?)
+        """, (ctx.author.id, quest_date))
         messages_sent = cursor.fetchone()[0]
 
         cursor.execute("SELECT COUNT(*) FROM gambles WHERE user_id = ? AND timestamp >= ? AND result = 'win'",
@@ -369,22 +414,31 @@ class Economy(commands.Cog):
             quest_completed = True
 
         if not quest_completed:
-            await ctx.respond("❌ Du hast die Quest-Bedingungen noch nicht erfüllt!", ephemeral=True)
+            embed = discord.Embed(title="❌ Quest nicht erfüllt", color=discord.Color.red())
+            embed.add_field(name="📜 Deine aktuelle Quest:", value=f"**{current_quest}**",
+                            inline=False)  # ✅ Jetzt zeigt es die richtige Quest!
+            embed.add_field(name="🔄 Status:", value="Noch nicht abgeschlossen!", inline=False)
+            await ctx.respond(embed=embed, ephemeral=True)
             return
 
-        # Quest abschließen & Belohnung auszahlen
+        # 🏆 Quest abschließen & Belohnung geben
         self.update_balance(ctx.author.id, quest_reward)
         cursor.execute("UPDATE users SET quest_status = 'abgeschlossen' WHERE user_id = ?", (ctx.author.id,))
         conn.commit()
         conn.close()
 
-        await ctx.respond(f"✅ Deine Tagesquest wurde abgeschlossen! Du hast **{quest_reward} Coins** erhalten.")
+        # Erfolgreiches Abschluss-Embed
+        embed = discord.Embed(title="🎉 Quest abgeschlossen!", color=discord.Color.gold())
+        embed.add_field(name="📜 Deine Quest:", value=f"**{current_quest}**", inline=False)
+        embed.add_field(name="💰 Belohnung:", value=f"**{quest_reward} Coins**", inline=False)
 
+        await ctx.respond(embed=embed)
+
+        # Optional: DM an den User senden
         try:
             await ctx.author.send(f"🎉 Deine Tagesquest wurde abgeschlossen! Du hast **{quest_reward} Coins** erhalten.")
         except discord.Forbidden:
             print(f"❌ Konnte {ctx.author} keine DM senden.")
-
 
     @commands.slash_command(name="rob", description="Versuche, einen User auszurauben")
     async def rob(self, ctx, member: discord.Member):
@@ -424,39 +478,43 @@ class Economy(commands.Cog):
         sender_id = ctx.author.id
         receiver_id = member.id
 
-        if amount <= 0:
-            return await ctx.respond("❌ Du kannst keine negativen oder 0 Coins senden.")
+        # ❌ Selbstüberweisung verhindern
+        if sender_id == receiver_id:
+            await ctx.respond("❌ Du kannst dir selbst kein Geld senden!", ephemeral=True)
+            return
 
+        # ❌ Betrag muss positiv sein
+        if amount <= 0:
+            await ctx.respond("❌ Du kannst keine negativen oder 0 Coins senden.", ephemeral=True)
+            return
+
+        # 💰 Kontostand des Senders abrufen
         sender_balance, _ = self.get_balance(sender_id)
 
+        # ❌ Überprüfung, ob der User genug Geld hat
         if sender_balance < amount:
-            return await ctx.respond("❌ Du hast nicht genug Coins!")
+            await ctx.respond("❌ Du hast nicht genug Coins!", ephemeral=True)
+            return
 
-        # Geld übertragen
+        # ✅ Geld übertragen
         self.update_balance(sender_id, -amount)
         self.update_balance(receiver_id, amount)
 
-        # Transaktion speichern
+        # ✅ Transaktion speichern
         conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO transactions (sender_id, receiver_id, amount) VALUES (?, ?, ?)
+            INSERT INTO transactions (sender_id, receiver_id, amount, timestamp) 
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
         """, (sender_id, receiver_id, amount))
         conn.commit()
         conn.close()
 
+        # ✅ Debugging-Bestätigung in der Konsole
+        print(f"✅ DEBUG: {ctx.author} ({sender_id}) → {member} ({receiver_id}): {amount} Coins überwiesen.")
+
+        # ✅ Erfolgreiche Überweisung
         await ctx.respond(f"✅ {ctx.author.mention} hat **{amount} Coins** an {member.mention} gesendet!")
-
-    @commands.slash_command(name="addcoins", description="Fügt einem User Coins hinzu (Admin)")
-    @commands.has_permissions(administrator=True)
-    async def addcoins(self, ctx, member: discord.Member, amount: int):
-        """Admins können Coins an User vergeben"""
-        if amount <= 0:
-            await ctx.respond("❌ Betrag muss größer als 0 sein.")
-            return
-
-        self.update_balance(member.id, amount)
-        await ctx.respond(f"✅ {amount} Coins wurden zu {member.mention} hinzugefügt.")
 
     @commands.slash_command(name="top", description="Zeigt das reichste Ranking auf dem Server")
     async def top(self, ctx):
