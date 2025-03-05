@@ -25,11 +25,9 @@ bot.synced = False  # Initialisiere die Variable global
 
 @bot.event
 async def on_ready():
-    if not bot.synced:  # Verhindert mehrfaches Synchronisieren
-        await bot.sync_commands()
-        bot.synced = True  # Setzt die Variable auf True
+    await bot.sync_commands()  # Synchronisiert alle Slash-Commands
+    print(f"✅ {bot.user} ist online! Alle Slash-Commands wurden synchronisiert.")
 
-    print(f"{bot.user} ist Online")
 
 
 
