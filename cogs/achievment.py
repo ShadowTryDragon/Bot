@@ -64,6 +64,8 @@ class AchievementTracker(commands.Cog):
                 await db.commit()
             print(f"✅ Nutzer {member.name} wurde hinzugefügt.")
 
+
+
     async def remove_user(self, guild, member):
         """Löscht einen User aus der Datenbank, wenn er den Server verlässt."""
         async with aiosqlite.connect("achievements.db") as db:
