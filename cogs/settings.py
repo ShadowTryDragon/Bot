@@ -14,14 +14,14 @@ import sqlite3
 
 
 DATABASE = "server_settings.db"  # Name der SQLite-Datenbank
+DEFAULT_WARN_DECAY_HOURS = 24
 
 
 class ServerSettings(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.bot.loop.create_task(self.create_db())  # Erstellt die DB beim Start
-
-
+        self.bot.loop.create_task(self.create_db()) # Erstellt die DB beim Start
+        self.bot.loop.create_task(self._warn_decay_loop())  # ✅ Startet das Reduzieren der Warnungen
 
     async def create_db(self):
         """Erstellt die Datenbank und Tabellen, falls sie nicht existieren."""
@@ -95,48 +95,76 @@ class ServerSettings(commands.Cog):
             await db.commit()
             print("✅ Datenbank wurde erfolgreich erstellt!")
 
-    async def remove_expired_warns(self):
-        """Löscht Verwarnungen, die älter sind als die eingestellte Zeit."""
-        while True:
-            await asyncio.sleep(3600)  # ⏳ Warten (1 Stunde)
+    async def update_warn_decay(self, guild_id: int, hours: int):
+        """Speichert die `warn_decay_hours`-Einstellung für einen Server in `server_settings.db`."""
+        async with aiosqlite.connect("server_settings.db") as db:
+            await db.execute("""
+                INSERT INTO settings (guild_id, warn_decay_hours)
+                VALUES (?, ?)
+                ON CONFLICT(guild_id) DO UPDATE SET warn_decay_hours = ?
+            """, (guild_id, hours, hours))
+            await db.commit()
 
+    async def update_warn_decay(self, guild_id: int, hours: int):
+        """Speichert die `warn_decay_hours`-Einstellung für einen Server in `server_settings.db`."""
+        async with aiosqlite.connect("server_settings.db") as db:
+            await db.execute("""
+                INSERT INTO settings (guild_id, warn_decay_hours)
+                VALUES (?, ?)
+                ON CONFLICT(guild_id) DO UPDATE SET warn_decay_hours = ?
+            """, (guild_id, hours, hours))
+            await db.commit()
+
+    async def get_warn_decay_hours(self, guild_id: int) -> int:
+        """Holt die gesetzte `warn_decay_hours`-Einstellung oder nutzt den Standardwert."""
+        async with aiosqlite.connect("server_settings.db") as db:
+            async with db.execute("""
+                SELECT warn_decay_hours FROM settings WHERE guild_id = ?
+            """, (guild_id,)) as cursor:
+                result = await cursor.fetchone()
+                return result[0] if result and result[0] else DEFAULT_WARN_DECAY_HOURS  # ✅ Falls None → Standardwert
+
+    async def _warn_decay_loop(self):
+        """Entfernt Warnungen basierend auf der Server-Einstellung (`warn_decay_hours`)."""
+        await self.bot.wait_until_ready()
+        while True:
             async with aiosqlite.connect("server_settings.db") as db:
                 async with db.execute("SELECT guild_id, warn_decay_hours FROM settings") as cursor:
-                    decay_times = await cursor.fetchall()
+                    guild_settings = await cursor.fetchall()  # Alle Server-Einstellungen abrufen
 
-                for guild_id, hours in decay_times:
+                for guild_id, decay_hours in guild_settings:
+                    if decay_hours is None:  # Falls kein Wert gesetzt ist, Standardwert nutzen
+                        decay_hours = DEFAULT_WARN_DECAY_HOURS
+
                     await db.execute("""
-                        UPDATE warns 
-                        SET warn_count = warn_count - 1 
-                        WHERE guild_id = ? 
-                        AND (strftime('%s', 'now') - strftime('%s', last_warned)) / 3600 >= ?
-                    """, (guild_id, hours))
+                        UPDATE warns
+                        SET warn_count = warn_count - 1
+                        WHERE warn_count > 1
+                        AND guild_id = ?
+                        AND (last_warned IS NOT NULL AND last_warned > 0)  -- ✅ Fehler vermeiden!
+                        AND last_warned <= strftime('%s', 'now', '-' || ? || ' hours')
+                    """, (guild_id, decay_hours))
+                    await db.commit()
 
-                    # Optional: Lösche Verwarnungen mit `warn_count <= 0`
-                    await db.execute("""
-                        DELETE FROM warns WHERE guild_id = ? AND warn_count <= 0
-                    """, (guild_id,))
-
-                await db.commit()
-
-            print("✅ Abgelaufene Verwarnungen wurden reduziert!")
+            await asyncio.sleep(3600)  # 🔄 Alle 60 Minuten prüfen
 
     async def log_action(self, guild, action, details):
-        """Sendet Moderationslogs in den festgelegten Log-Channel"""
-        log_channel_id = await self.get_setting(guild.id, "log_channel_id")  # Hol den Log-Channel aus der DB
-        if not log_channel_id:
-            return  # Kein Log-Channel gesetzt, also keine Aktion
+        async with aiosqlite.connect("server_settings.db") as db:
+            async with db.execute("SELECT log_channel_id FROM settings WHERE guild_id = ?", (guild.id,)) as cursor:
+                log_channel_id = (await cursor.fetchone() or [None])[0]
 
-        log_channel = self.bot.get_channel(log_channel_id)
-        if not log_channel:
-            return  # Falls der Channel nicht gefunden wird (gelöscht oder Bot hat keine Rechte)
+        print(f"Log-Channel-ID für {guild.name}: {log_channel_id}")  # Debug-Log
 
-        embed = discord.Embed(title="🔍 Moderationslog", color=discord.Color.orange())
-        embed.add_field(name="📢 Aktion", value=action, inline=False)
-        embed.add_field(name="📋 Details", value=details, inline=False)
-        embed.set_footer(text=f"Server: {guild.name}")
-
-        await log_channel.send(embed=embed)
+        if log_channel_id:
+            log_channel = guild.get_channel(log_channel_id)
+            if log_channel:
+                embed = discord.Embed(title=action, description=details, color=discord.Color.red())
+                embed.set_footer(text="Automatische Moderation")
+                await log_channel.send(embed=embed)
+            else:
+                print(f"❌ Kein gültiger Log-Channel gefunden (ID: {log_channel_id})")
+        else:
+            print("❌ Keine Log-Channel-ID in der Datenbank gefunden!")
 
     async def is_capslock_enabled(self, guild_id):
         """Überprüft, ob der Capslock-Filter für diesen Server aktiviert ist."""
@@ -185,6 +213,44 @@ class ServerSettings(commands.Cog):
                 DO UPDATE SET {setting} = excluded.{setting}
             """, (guild_id, value))
             await db.commit()
+
+    async def add_warn(self, guild_id, guild_name, user_id, user_name, reason):
+        """Fügt eine Verwarnung zur Datenbank hinzu oder erhöht den Zähler."""
+        async with aiosqlite.connect("server_settings.db") as db:
+            # Prüfe, ob der User bereits Verwarnungen hat
+            async with db.execute("SELECT warn_count FROM warns WHERE guild_id = ? AND user_id = ?",
+                                  (guild_id, user_id)) as cursor:
+                result = await cursor.fetchone()
+
+            if result:
+                warn_count = result[0] + 1
+                await db.execute(
+                    "UPDATE warns SET warn_count = ?, last_warned = CURRENT_TIMESTAMP WHERE guild_id = ? AND user_id = ?",
+                    (warn_count, guild_id, user_id))
+            else:
+                warn_count = 1
+                await db.execute(
+                    "INSERT INTO warns (guild_id, guild_name, user_id, user_name, warn_count, last_warned) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                    (guild_id, guild_name, user_id, user_name, warn_count))
+
+            await db.commit()
+            print(
+                f"⚠️ ({guild_name}) Verwarnung vergeben: {user_name} ({user_id}) hat jetzt {warn_count} Verwarnung(en) für {reason}.")
+
+        return warn_count  # ✅ WICHTIG: `warn_count` zurückgeben!
+
+    async def log_action(self, guild, action, details):
+        """Protokolliert eine Moderationsaktion in den Log-Channel (sofern eingestellt)."""
+        async with aiosqlite.connect("server_settings.db") as db:
+            async with db.execute("SELECT log_channel_id FROM settings WHERE guild_id = ?", (guild.id,)) as cursor:
+                log_channel_id = (await cursor.fetchone() or [None])[0]
+
+        if log_channel_id:
+            log_channel = guild.get_channel(log_channel_id)
+            if log_channel:
+                embed = discord.Embed(title=action, description=details, color=discord.Color.red())
+                embed.set_footer(text="Automatische Moderation")
+                await log_channel.send(embed=embed)
 
     ### --- SERVER-SETTINGS BEFEHLE --- ###
 
@@ -297,8 +363,8 @@ class ServerSettings(commands.Cog):
     @slash_command(name="set_warn_decay", description="Legt fest, nach wie vielen Stunden eine Warnung gelöscht wird.")
     @commands.has_permissions(administrator=True)
     async def set_warn_decay(self, ctx, hours: Option(int, "Anzahl der Stunden bis zur Löschung einer Warnung")):
-        """Speichert, nach wie vielen Stunden eine Verwarnung gelöscht wird."""
-        await self.update_setting(ctx.guild.id, "warn_decay_hours", hours)
+        """Speichert, nach wie vielen Stunden eine Verwarnung gelöscht wird (pro Server in `server_settings.db`)."""
+        await self.update_warn_decay(ctx.guild.id, hours)
         await ctx.respond(f"✅ Warnungen verfallen nun nach **{hours} Stunden**.")
 
     @slash_command(name="set_automod", description="Aktiviert oder deaktiviert automatische Moderation (Admin only).")
@@ -316,23 +382,10 @@ class ServerSettings(commands.Cog):
     @commands.has_permissions(manage_messages=True)
     async def warn(self, ctx, member: Option(discord.Member, "Wähle den Nutzer"),
                    reason: Option(str, "Grund für die Verwarnung")):
-        """Verwarnt einen Nutzer und überprüft, ob Strafen angewendet werden müssen."""
-        async with aiosqlite.connect("server_settings.db") as db:
-            # Aktuelle Anzahl der Verwarnungen abrufen
-            async with db.execute("SELECT warn_count FROM warns WHERE guild_id = ? AND user_id = ?",
-                                  (ctx.guild.id, member.id)) as cursor:
-                result = await cursor.fetchone()
-                warn_count = result[0] + 1 if result else 1  # Falls Nutzer nicht existiert → 1. Warnung
+        """Verwarnt einen Nutzer und speichert die Warnung in der Datenbank."""
 
-            # Verwarnung in die DB eintragen
-            await db.execute("""
-                INSERT INTO warns (guild_id, guild_name, user_id, username, warn_count, last_warned) 
-                VALUES (?, ?, ?, ?, ?, strftime('%s', 'now'))
-                ON CONFLICT(guild_id, user_id) 
-                DO UPDATE SET warn_count = excluded.warn_count, last_warned = excluded.last_warned
-            """, (ctx.guild.id, ctx.guild.name, member.id, member.name, warn_count))
-
-            await db.commit()
+        # ✅ `add_warn()` verwenden, um Code zu vereinheitlichen
+        warn_count = await self.add_warn(ctx.guild.id, ctx.guild.name, member.id, member.name, reason)
 
         # 📢 Embed für die Verwarnung
         embed = discord.Embed(title="⚠ Verwarnung", description=f"{member.mention} wurde verwarnt.",
@@ -357,11 +410,11 @@ class ServerSettings(commands.Cog):
     @slash_command(name="clear_warns", description="Setzt die Verwarnungen eines Nutzers zurück (Admin only).")
     @commands.has_permissions(manage_messages=True)
     async def clear_warns(self, ctx, member: Option(discord.Member, "Wähle den Nutzer")):
-        """Löscht alle Verwarnungen eines Nutzers."""
+        """Löscht alle Verwarnungen eines Nutzers und setzt den Timestamp zurück."""
         async with aiosqlite.connect("server_settings.db") as db:
             await db.execute("""
                 UPDATE warns 
-                SET warn_count = 0 
+                SET warn_count = 0, last_warned = NULL
                 WHERE guild_id = ? AND user_id = ?
             """, (ctx.guild.id, member.id))
             await db.commit()  # ✅ Änderungen speichern
@@ -475,8 +528,6 @@ class ServerSettings(commands.Cog):
         conn.close()
         print(f"❌ Der Server {guild.name} wurde aus der Datenbank entfernt.")
 
-
-
     @commands.Cog.listener()
     async def on_message(self, message):
         if message.author.bot:
@@ -486,6 +537,7 @@ class ServerSettings(commands.Cog):
             return
 
         async with aiosqlite.connect("server_settings.db") as db:
+            # 📌 Einstellungen abrufen
             async with db.execute("SELECT word FROM blacklisted_words WHERE guild_id = ?",
                                   (message.guild.id,)) as cursor:
                 blacklist = [row[0] for row in await cursor.fetchall()]
@@ -508,17 +560,23 @@ class ServerSettings(commands.Cog):
         # **🔹 Blacklist-Filter**
         filtered_message = "".join(c if c.isalnum() or c.isspace() else " " for c in message.content).lower()
         if any(word in filtered_message.split() for word in blacklist):
+            await self.add_warn(message.guild.id, message.guild.name, message.author.id, message.author.name,
+                                reason="Blacklist-Wort")
             await self.log_action(message.guild, "🔴 Blacklist-Wort erkannt", f"{message.author}: `{message.content}`")
             await message.delete()
-            await message.channel.send(f"{message.author.mention}, dieses Wort ist auf der Blacklist!", delete_after=5)
-            return  # Verhindert weitere Verarbeitung
+            await message.channel.send(
+                f"{message.author.mention}, dieses Wort ist auf der Blacklist! ⚠️ Verwarnung erhalten.", delete_after=5)
+            return
 
         # **🔹 Mass Mention Filter (Mehr als 5 Pings)**
         if mention_filter and len(message.mentions) > 5:
+            await self.add_warn(message.guild.id, message.guild.name, message.author.id, message.author.name,
+                                reason="Mass-Ping")
             await self.log_action(message.guild, "🚨 Mass-Ping erkannt",
                                   f"{message.author} hat {len(message.mentions)} Leute erwähnt!")
             await message.delete()
-            await message.channel.send(f"{message.author.mention}, bitte keine Mass-Pings! 🚨", delete_after=5)
+            await message.channel.send(f"{message.author.mention}, bitte keine Mass-Pings! 🚨 ⚠️ Verwarnung erhalten.",
+                                       delete_after=5)
             return
 
         # **🔹 Link-Filter mit Whitelist**
@@ -529,11 +587,14 @@ class ServerSettings(commands.Cog):
             for domain in urls:
                 if domain.lower() not in allowed_domains and not any(
                         sub in domain.lower() for sub in ["tenor.com", "giphy.com"]):
+                    await self.add_warn(message.guild.id, message.guild.name, message.author.id, message.author.name,
+                                        reason="Unerlaubter Link")
                     await self.log_action(message.guild, "🔗 Unerlaubter Link erkannt",
                                           f"{message.author}: `{message.content}` (Domain: {domain})")
                     await message.delete()
-                    await message.channel.send(f"{message.author.mention}, Links von `{domain}` sind nicht erlaubt! 🚫",
-                                               delete_after=5)
+                    await message.channel.send(
+                        f"{message.author.mention}, Links von `{domain}` sind nicht erlaubt! 🚫 ⚠️ Verwarnung erhalten.",
+                        delete_after=5)
                     return
 
         # **🔹 Capslock-Filter**
@@ -551,9 +612,13 @@ class ServerSettings(commands.Cog):
             return (upper_chars / total_chars) >= threshold
 
         if capslock_enabled and is_capslock_message(message.content):
+            await self.add_warn(message.guild.id, message.guild.name, message.author.id, message.author.name,
+                                reason="Capslock-Spam")
             await self.log_action(message.guild, "🔊 Capslock erkannt", f"{message.author}: `{message.content}`")
             await message.delete()
-            await message.channel.send(f"{message.author.mention}, bitte nicht schreien! 🔇", delete_after=5)
+            await message.channel.send(f"{message.author.mention}, bitte nicht schreien! 🔇 ⚠️ Verwarnung erhalten.",
+                                       delete_after=5)
+
 
     @commands.Cog.listener()
     async def on_member_join(self, member):
@@ -635,39 +700,39 @@ class ServerSettings(commands.Cog):
                 embed.set_footer(text=f"Von {message.author}")
                 await log_channel.send(embed=embed)
 
+    @commands.Cog.listener()
+    async def on_member_join(self, member):
+        """Gibt neuen Mitgliedern Standardrollen und sendet eine Begrüßungsnachricht."""
+        async with aiosqlite.connect("server_settings.db") as db:
+            async with db.execute(
+                    "SELECT default_roles, welcome_message, welcome_channel_id FROM settings WHERE guild_id = ?",
+                    (member.guild.id,)) as cursor:
+                result = await cursor.fetchone()
+                if not result:
+                    return  # Falls keine Einstellungen vorhanden sind, abbrechen
 
-@commands.Cog.listener()
-async def on_member_join(self, member):
-    """Gibt neuen Mitgliedern Standardrollen und sendet eine Begrüßungsnachricht."""
-    async with aiosqlite.connect("server_settings.db") as db:
-        async with db.execute(
-                "SELECT default_roles, welcome_message, welcome_channel_id FROM settings WHERE guild_id = ?",
-                (member.guild.id,)) as cursor:
-            result = await cursor.fetchone()
-            if not result:
-                return  # Falls keine Einstellungen vorhanden sind, abbrechen
+                default_roles, welcome_message, welcome_channel_id = result
 
-            default_roles, welcome_message, welcome_channel_id = result
+                # 🔹 Automatische Rollenzuweisung
+                if default_roles:
+                    role_ids = [int(r) for r in default_roles.split(",") if r.isdigit()]
+                    roles_to_add = [member.guild.get_role(rid) for rid in role_ids if member.guild.get_role(rid)]
 
-            # 🔹 Automatische Rollenzuweisung
-            if default_roles:
-                role_ids = [int(r) for r in default_roles.split(",") if r.isdigit()]
-                roles_to_add = [member.guild.get_role(rid) for rid in role_ids if member.guild.get_role(rid)]
+                    if roles_to_add:
+                        await member.add_roles(*roles_to_add, reason="Automatische Rollenzuweisung")
+                        print(f"✅ {member.name} hat {len(roles_to_add)} Standardrollen erhalten!")
 
-                if roles_to_add:
-                    await member.add_roles(*roles_to_add, reason="Automatische Rollenzuweisung")
-                    print(f"✅ {member.name} hat {len(roles_to_add)} Standardrollen erhalten!")
+                # 🔹 Begrüßungsnachricht senden
+                if welcome_message and welcome_channel_id:
+                    channel = member.guild.get_channel(welcome_channel_id)
+                    if channel:
+                        embed = discord.Embed(title="👋 Willkommen!",
+                                              description=welcome_message.replace("{user}", member.mention),
+                                              color=discord.Color.green())
+                        embed.set_thumbnail(url=member.avatar.url if member.avatar else None)
+                        embed.set_footer(text=f"Willkommen auf {member.guild.name}!")
+                        await channel.send(embed=embed)
 
-            # 🔹 Begrüßungsnachricht senden
-            if welcome_message and welcome_channel_id:
-                channel = member.guild.get_channel(welcome_channel_id)
-                if channel:
-                    embed = discord.Embed(title="👋 Willkommen!",
-                                          description=welcome_message.replace("{user}", member.mention),
-                                          color=discord.Color.green())
-                    embed.set_thumbnail(url=member.avatar.url if member.avatar else None)
-                    embed.set_footer(text=f"Willkommen auf {member.guild.name}!")
-                    await channel.send(embed=embed)
 
 
 def setup(bot):

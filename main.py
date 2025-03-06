@@ -13,6 +13,7 @@ intents.message_content = True  # Falls der Bot Nachrichten analysieren soll (z.
 intents.reactions = True  # Ermöglicht das Tracking von Reaktionen
 
 
+
 status = discord.Status.dnd
 activity = discord.Activity(type=discord.ActivityType.playing, name="In Entwicklung")
 
@@ -27,6 +28,12 @@ bot.synced = False  # Initialisiere die Variable global
 async def on_ready():
     await bot.sync_commands()  # Synchronisiert alle Slash-Commands
     print(f"✅ {bot.user} ist online! Alle Slash-Commands wurden synchronisiert.")
+
+
+
+
+
+
 
 
 
