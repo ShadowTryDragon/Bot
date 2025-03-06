@@ -231,8 +231,10 @@ class PrivateVoice(commands.Cog):
                 existing_channel = await row.fetchone()
 
                 if existing_channel:
-                    return await member.send(
+                    await member.send(
                         "⚠ Du hast bereits einen privaten Voice-Channel! Bitte verlasse ihn zuerst, bevor du einen neuen erstellst.")
+                    await member.move_to(None)  # User aus dem Voice-Channel kicken
+                    return
 
                 # Setup-Channel aus der Datenbank holen
                 row = await db.execute("SELECT setup_channel_id FROM servers WHERE guild_id = ?", (member.guild.id,))
