@@ -59,8 +59,9 @@ class ServerChangelog(commands.Cog):
         if before.category != after.category:
             changes.append(f"📂 **Kategorie geändert:** `{before.category}` → `{after.category}`")
 
-        if before.topic != after.topic:
-            changes.append(f"📝 **Thema geändert:** `{before.topic}` → `{after.topic}`")
+        if isinstance(before, discord.TextChannel) and isinstance(after, discord.TextChannel):
+            if before.topic != after.topic:
+                changes.append(f"📝 **Thema geändert:** `{before.topic}` → `{after.topic}`")
 
         if before.nsfw != after.nsfw:
             status = "aktiviert" if after.nsfw else "deaktiviert"
