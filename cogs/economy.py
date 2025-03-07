@@ -156,6 +156,17 @@ class Economy(commands.Cog):
         balance, bank = self.get_balance(ctx.author.id)
         await ctx.respond(f"💰 Wallet: **{balance} Coins**\n🏦 Bank: **{bank} Coins**")
 
+    @commands.slash_command(name="addcoins", description="Fügt einem User Coins hinzu (Admin)")
+    @commands.has_permissions(administrator=True)
+    async def addcoins(self, ctx, member: discord.Member, amount: int):
+        """Admins können Coins an User vergeben"""
+        if amount <= 0:
+            await ctx.respond("❌ Betrag muss größer als 0 sein.")
+            return
+
+        self.update_balance(member.id, amount)
+        await ctx.respond(f"✅ {amount} Coins wurden zu {member.mention} hinzugefügt.")
+
     @slash_command(name="daily", description="Erhalte einmal pro Tag Coins")
     @commands.check(check_cooldown)  # ✅ Cooldown für diesen Befehl aktivieren
     async def daily(self, ctx):

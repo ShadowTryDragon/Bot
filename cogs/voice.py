@@ -10,12 +10,18 @@ class PrivateVoice(commands.Cog):
 
     async def create_tables(self):
         """Erstellt die notwendigen Tabellen in der Datenbank."""
-        async with aiosqlite.connect("voice_channels.db") as db:
+        async with aiosqlite.connect("channels.db") as db:
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS servers (
                     guild_id INTEGER PRIMARY KEY,
                     guild_name TEXT,
-                    setup_channel_id INTEGER
+                    voice_setup INTEGER,
+                    text_setup INTEGER,
+                    message_id INTEGER,
+                    ticket_embed_title TEXT DEFAULT '🎫 Ticketsystem',
+                    ticket_embed_description TEXT DEFAULT 'Klicke auf den Button, um ein Ticket zu erstellen.',
+                    ticket_embed_color TEXT DEFAULT '#3498db'  -- Standard Blau
+                    
                 )
             """)
             await db.execute("""
@@ -28,16 +34,41 @@ class PrivateVoice(commands.Cog):
                     FOREIGN KEY (guild_id) REFERENCES servers (guild_id)
                 )
             """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS text_channels (
+                    channel_id INTEGER PRIMARY KEY,
+                    channel_name TEXT,
+                    user_id INTEGER,
+                    user_name TEXT,
+                    guild_id INTEGER,
+                    ticket_id INTEGER,
+                    message_id INTEGER,
+                    FOREIGN KEY (guild_id) REFERENCES servers (guild_id)
+                )
+            """)
+            await db.execute("""
+                            CREATE TABLE IF NOT EXISTS tickets (
+                                ticket_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                channel_id INTEGER,
+                                user_id INTEGER,
+                                user_name TEXT,
+                                guild_id INTEGER,
+                                message_id INTEGER,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                status TEXT DEFAULT 'open',                     
+                                FOREIGN KEY (guild_id) REFERENCES servers (guild_id)
+                            )
+                        """)
             await db.commit()
 
     @commands.Cog.listener()
     async def on_ready(self):
         """Fügt alle Server zur Datenbank hinzu, wenn der Bot startet."""
         await self.create_tables()
-        async with aiosqlite.connect("voice_channels.db") as db:
+        async with aiosqlite.connect("channels.db") as db:
             for guild in self.bot.guilds:
                 await db.execute(
-                    "INSERT OR IGNORE INTO servers (guild_id, guild_name) VALUES (?, ?)",
+                    "INSERT OR IGNORE INTO servers (guild_id, guild_name, voice_setup, text_setup) VALUES (?, ?, NULL, NULL)",
                     (guild.id, guild.name)
                 )
             await db.commit()
@@ -46,9 +77,9 @@ class PrivateVoice(commands.Cog):
     @commands.Cog.listener()
     async def on_guild_join(self, guild):
         """Fügt einen neuen Server zur Datenbank hinzu."""
-        async with aiosqlite.connect("voice_channels.db") as db:
+        async with aiosqlite.connect("channels.db") as db:
             await db.execute(
-                "INSERT OR IGNORE INTO servers (guild_id, guild_name) VALUES (?, ?)",
+                "INSERT OR IGNORE INTO servers (guild_id, guild_name, voice_setup, text_setup) VALUES (?, ?, NULL, NULL)",
                 (guild.id, guild.name)
             )
             await db.commit()
@@ -57,9 +88,10 @@ class PrivateVoice(commands.Cog):
     @commands.Cog.listener()
     async def on_guild_remove(self, guild):
         """Entfernt einen Server aus der Datenbank, wenn der Bot ihn verlässt."""
-        async with aiosqlite.connect("voice_channels.db") as db:
+        async with aiosqlite.connect("channels.db") as db:
             await db.execute("DELETE FROM servers WHERE guild_id = ?", (guild.id,))
             await db.execute("DELETE FROM voice_channels WHERE guild_id = ?", (guild.id,))
+            await db.execute("DELETE FROM text_channels WHERE guild_id = ?", (guild.id,))  # NEU: Textkanäle löschen
             await db.commit()
         print(f"❌ Server {guild.name} wurde aus der Datenbank entfernt.")
 
@@ -70,8 +102,8 @@ class PrivateVoice(commands.Cog):
         guild = ctx.guild
 
         # Prüfen, ob bereits ein Setup-Channel existiert
-        async with aiosqlite.connect("voice_channels.db") as db:
-            row = await db.execute("SELECT setup_channel_id FROM servers WHERE guild_id = ?", (guild.id,))
+        async with aiosqlite.connect("channels.db") as db:
+            row = await db.execute("SELECT voice_setup FROM servers WHERE guild_id = ?", (guild.id,))
             result = await row.fetchone()
 
         if result and result[0]:
@@ -81,12 +113,14 @@ class PrivateVoice(commands.Cog):
         category = await guild.create_category("🎤 Private Channels")
         setup_channel = await guild.create_voice_channel("➕ Join to Create", category=category)
 
-        # Speichern in DB
-        async with aiosqlite.connect("voice_channels.db") as db:
-            await db.execute("UPDATE servers SET setup_channel_id = ? WHERE guild_id = ?", (setup_channel.id, guild.id))
+        # Speichern in DB (Spalte heißt jetzt voice_setup)
+        async with aiosqlite.connect("channels.db") as db:
+            await db.execute("UPDATE servers SET voice_setup = ? WHERE guild_id = ?", (setup_channel.id, guild.id))
             await db.commit()
 
-        await ctx.respond(f"✅ Setup abgeschlossen! Betritt {setup_channel.mention}, um einen eigenen Kanal zu erstellen.", ephemeral=True)
+        await ctx.respond(
+            f"✅ Setup abgeschlossen! Betritt {setup_channel.mention}, um einen eigenen Kanal zu erstellen.",
+            ephemeral=True)
 
     @commands.slash_command(name="rename-voice", description="Ändert den Namen deines privaten Kanals.")
     async def rename_voice(self, ctx, neuer_name: str):
@@ -97,7 +131,7 @@ class PrivateVoice(commands.Cog):
         if not voice_channel:
             return await ctx.respond("⚠ Du bist in keinem Voice-Channel!", ephemeral=True)
 
-        async with aiosqlite.connect("voice_channels.db") as db:
+        async with aiosqlite.connect("channels.db") as db:
             row = await db.execute("SELECT user_id FROM voice_channels WHERE channel_id = ?", (voice_channel.id,))
             result = await row.fetchone()
 
@@ -106,7 +140,7 @@ class PrivateVoice(commands.Cog):
 
         await voice_channel.edit(name=neuer_name)  # Kanal umbenennen
 
-        async with aiosqlite.connect("voice_channels.db") as db:
+        async with aiosqlite.connect("channels.db") as db:
             await db.execute("UPDATE voice_channels SET channel_name = ? WHERE channel_id = ?",
                              (neuer_name, voice_channel.id))
             await db.commit()
@@ -121,7 +155,7 @@ class PrivateVoice(commands.Cog):
         if not voice_channel:
             return await ctx.respond("⚠ Du bist in keinem Voice-Channel!", ephemeral=True)
 
-        async with aiosqlite.connect("voice_channels.db") as db:
+        async with aiosqlite.connect("channels.db") as db:
             row = await db.execute("SELECT user_id FROM voice_channels WHERE channel_id = ?", (voice_channel.id,))
             result = await row.fetchone()
 
@@ -143,7 +177,7 @@ class PrivateVoice(commands.Cog):
         if not voice_channel:
             return await ctx.respond("⚠ Du bist in keinem Voice-Channel!", ephemeral=True)
 
-        async with aiosqlite.connect("voice_channels.db") as db:
+        async with aiosqlite.connect("channels.db") as db:
             row = await db.execute("SELECT user_id FROM voice_channels WHERE channel_id = ?", (voice_channel.id,))
             result = await row.fetchone()
 
@@ -161,7 +195,7 @@ class PrivateVoice(commands.Cog):
         if not voice_channel:
             return await ctx.respond("⚠ Du bist in keinem Voice-Channel!", ephemeral=True)
 
-        async with aiosqlite.connect("voice_channels.db") as db:
+        async with aiosqlite.connect("channels.db") as db:
             row = await db.execute("SELECT user_id FROM voice_channels WHERE channel_id = ?", (voice_channel.id,))
             result = await row.fetchone()
 
@@ -179,7 +213,7 @@ class PrivateVoice(commands.Cog):
         if not voice_channel:
             return await ctx.respond("⚠ Du bist in keinem Voice-Channel!", ephemeral=True)
 
-        async with aiosqlite.connect("voice_channels.db") as db:
+        async with aiosqlite.connect("channels.db") as db:
             row = await db.execute("SELECT user_id FROM voice_channels WHERE channel_id = ?", (voice_channel.id,))
             result = await row.fetchone()
 
@@ -194,28 +228,28 @@ class PrivateVoice(commands.Cog):
 
     @commands.slash_command(name="remove-voice",
                             description="Entfernt den Setup-Channel und die Kategorie (Admin Only)")
-    @commands.has_permissions(administrator=True)  # Nur Admins dürfen diesen Befehl nutzen
+    @commands.has_permissions(administrator=True)
     async def remove_voice(self, ctx):
-        """Löscht den Setup-Channel, die Kategorie (falls leer) und entfernt sie aus der Datenbank."""
-        async with aiosqlite.connect("voice_channels.db") as db:
-            row = await db.execute("SELECT setup_channel_id FROM servers WHERE guild_id = ?", (ctx.guild.id,))
+        """Löscht den Voice-Setup-Channel, die Kategorie (falls leer) und entfernt die ID aus der Datenbank."""
+        async with aiosqlite.connect("channels.db") as db:
+            row = await db.execute("SELECT voice_setup FROM servers WHERE guild_id = ?", (ctx.guild.id,))
             result = await row.fetchone()
 
         if not result or not result[0]:
             return await ctx.respond("⚠ Kein Setup-Channel gefunden!", ephemeral=True)
 
-        setup_channel = ctx.guild.get_channel(result[0])  # Setup-Channel abrufen
+        setup_channel = ctx.guild.get_channel(result[0])  # Voice-Setup-Channel abrufen
         category = setup_channel.category if setup_channel else None  # Zugehörige Kategorie abrufen
 
         if setup_channel:
-            await setup_channel.delete()  # Setup-Channel löschen
+            await setup_channel.delete()  # Voice-Setup-Channel löschen
 
         # Prüfen, ob die Kategorie noch andere Kanäle hat
         if category and len(category.channels) == 0:
             await category.delete()  # Nur löschen, wenn sie leer ist
 
-        async with aiosqlite.connect("voice_channels.db") as db:
-            await db.execute("UPDATE servers SET setup_channel_id = NULL WHERE guild_id = ?", (ctx.guild.id,))
+        async with aiosqlite.connect("channels.db") as db:
+            await db.execute("UPDATE servers SET voice_setup = NULL WHERE guild_id = ?", (ctx.guild.id,))
             await db.commit()
 
         await ctx.respond("✅ Der Setup-Channel und die Kategorie wurden erfolgreich entfernt!", ephemeral=True)
@@ -225,7 +259,7 @@ class PrivateVoice(commands.Cog):
         """Erstellt einen privaten Kanal, wenn der User den Setup-Channel betritt, aber begrenzt auf 1 pro User."""
 
         if after.channel and before.channel != after.channel:
-            async with aiosqlite.connect("voice_channels.db") as db:
+            async with aiosqlite.connect("channels.db") as db:
                 # Prüfen, ob der User bereits einen Kanal besitzt
                 row = await db.execute("SELECT channel_id FROM voice_channels WHERE user_id = ?", (member.id,))
                 existing_channel = await row.fetchone()
@@ -237,7 +271,7 @@ class PrivateVoice(commands.Cog):
                     return
 
                 # Setup-Channel aus der Datenbank holen
-                row = await db.execute("SELECT setup_channel_id FROM servers WHERE guild_id = ?", (member.guild.id,))
+                row = await db.execute("SELECT voice_setup FROM servers WHERE guild_id = ?", (member.guild.id,))
                 result = await row.fetchone()
 
             if result and after.channel.id == result[0]:  # Nutzer betritt den Setup-Channel
@@ -245,7 +279,7 @@ class PrivateVoice(commands.Cog):
                 await member.move_to(new_channel)
 
                 # Kanal in die Datenbank eintragen
-                async with aiosqlite.connect("voice_channels.db") as db:
+                async with aiosqlite.connect("channels.db") as db:
                     await db.execute(
                         "INSERT INTO voice_channels (channel_id, channel_name, user_id, user_name, guild_id) VALUES (?, ?, ?, ?, ?)",
                         (new_channel.id, new_channel.name, member.id, member.name, member.guild.id)
@@ -256,7 +290,7 @@ class PrivateVoice(commands.Cog):
 
         # Prüfen, ob ein leerer privater Channel gelöscht werden muss
         if before.channel and before.channel.category and before.channel.category.name == "🎤 Private Channels":
-            async with aiosqlite.connect("voice_channels.db") as db:
+            async with aiosqlite.connect("channels.db") as db:
                 row = await db.execute("SELECT channel_id FROM voice_channels WHERE channel_id = ?", (before.channel.id,))
                 result = await row.fetchone()
 
@@ -264,35 +298,35 @@ class PrivateVoice(commands.Cog):
                 await asyncio.sleep(300)  # 5 Minuten warten
                 if len(before.channel.members) == 0:  # Noch immer leer?
                     await before.channel.delete()
-                    async with aiosqlite.connect("voice_channels.db") as db:
+                    async with aiosqlite.connect("channels.db") as db:
                         await db.execute("DELETE FROM voice_channels WHERE channel_id = ?", (before.channel.id,))
                         await db.commit()
                     print(f"🗑 Gelöschter Kanal: {before.channel.name}")
 
     @tasks.loop(minutes=1)
     async def check_empty_channels(self):
-        """Regelmäßig leere Kanäle aus der Datenbank entfernen."""
-        async with aiosqlite.connect("voice_channels.db") as db:
-            rows = await db.execute("SELECT channel_id FROM voice_channels")
+        """Regelmäßig leere Sprachkanäle aus der Datenbank entfernen."""
+        async with aiosqlite.connect("channels.db") as db:
+            rows = await db.execute("SELECT channel_id FROM voice_channels")  # Nur Sprachkanäle
             channels = await rows.fetchall()
 
         for channel_id, in channels:
             channel = self.bot.get_channel(channel_id)
-            if channel and len(channel.members) == 0:
+            if channel and isinstance(channel, discord.VoiceChannel) and len(channel.members) == 0:
                 await asyncio.sleep(300)  # 5 Minuten warten
                 if len(channel.members) == 0:  # Noch immer leer?
                     try:
                         await channel.delete()
-                        async with aiosqlite.connect("voice_channels.db") as db:
+                        async with aiosqlite.connect("channels.db") as db:
                             await db.execute("DELETE FROM voice_channels WHERE channel_id = ?", (channel_id,))
                             await db.commit()
-                        print(f"🗑 Gelöschter Kanal (Task): {channel.name}")
+                        print(f"🗑 Gelöschter Sprachkanal: {channel.name}")
                     except discord.NotFound:
-                        print(f"⚠ Fehler: Kanal {channel_id} existiert nicht mehr (bereits gelöscht).")
+                        print(f"⚠ Fehler: Sprachkanal {channel_id} existiert nicht mehr (bereits gelöscht).")
                     except discord.Forbidden:
-                        print(f"❌ Fehler: Keine Berechtigung zum Löschen von Kanal {channel_id}.")
+                        print(f"❌ Fehler: Keine Berechtigung zum Löschen von Sprachkanal {channel_id}.")
                     except Exception as e:
-                        print(f"⚠ Unerwarteter Fehler beim Löschen von Kanal {channel_id}: {e}")
+                        print(f"⚠ Unerwarteter Fehler beim Löschen von Sprachkanal {channel_id}: {e}")
 
 
 def setup(bot):
