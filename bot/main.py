@@ -1,7 +1,6 @@
 import os
 import discord
 from dotenv import load_dotenv
-import api_client
 from keep import keep_alive
 
 intents = discord.Intents.default()
@@ -26,7 +25,6 @@ bot.synced = False  # Initialisiere die Variable global
 @bot.event
 async def on_ready():
     await bot.sync_commands()  # Synchronisiert alle Slash-Commands
-    await api_client.update_bot_config()
     print(f"✅ {bot.user} ist online! Alle Slash-Commands wurden synchronisiert.")
 
 
