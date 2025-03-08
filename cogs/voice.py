@@ -281,38 +281,47 @@ class PrivateVoice(commands.Cog):
 
         if after.channel and before.channel != after.channel:
             async with aiosqlite.connect("channels.db") as db:
-                # Prüfen, ob der User bereits einen Kanal besitzt
+                # **Prüfen, ob der User bereits einen Kanal besitzt**
                 row = await db.execute("SELECT channel_id FROM voice_channels WHERE user_id = ?", (member.id,))
                 existing_channel = await row.fetchone()
 
                 if existing_channel:
                     await member.send(
-                        "⚠ Du hast bereits einen privaten Voice-Channel! Bitte verlasse ihn zuerst, bevor du einen neuen erstellst.")
+                        "⚠ Du hast bereits einen privaten Voice-Channel! Bitte verlasse ihn zuerst, bevor du einen neuen erstellst."
+                    )
                     await member.move_to(None)  # User aus dem Voice-Channel kicken
                     return
 
-                # Setup-Channel aus der Datenbank holen
+                # **Setup-Channel aus der Datenbank holen**
                 row = await db.execute("SELECT voice_setup FROM servers WHERE guild_id = ?", (member.guild.id,))
                 result = await row.fetchone()
 
-            if result and after.channel.id == result[0]:  # Nutzer betritt den Setup-Channel
-                new_channel = await after.channel.category.create_voice_channel(f"{member.name}'s Channel")
-                await member.move_to(new_channel)
+            if result:
+                setup_channel_id = result[0]
 
-                # Kanal in die Datenbank eintragen
-                async with aiosqlite.connect("channels.db") as db:
-                    await db.execute(
-                        "INSERT INTO voice_channels (channel_id, channel_name, user_id, user_name, guild_id) VALUES (?, ?, ?, ?, ?)",
-                        (new_channel.id, new_channel.name, member.id, member.name, member.guild.id)
-                    )
-                    await db.commit()
+                # **Nur wenn der Nutzer den Setup-Channel betritt**
+                if after.channel.id == setup_channel_id:
+                    new_channel = await after.channel.category.create_voice_channel(f"{member.name}'s Channel")
+                    await member.move_to(new_channel)
 
-                print(f"🎤 {member.name} hat einen privaten Kanal erstellt: {new_channel.name}")
+                    # **Neuen Channel in der DB speichern**
+                    async with aiosqlite.connect("channels.db") as db:
+                        await db.execute(
+                            "INSERT INTO voice_channels (channel_id, channel_name, user_id, user_name, guild_id) VALUES (?, ?, ?, ?, ?)",
+                            (new_channel.id, new_channel.name, member.id, member.name, member.guild.id)
+                        )
+                        await db.commit()
 
-        # Prüfen, ob ein leerer privater Channel gelöscht werden muss
+                    print(f"🎤 {member.name} hat einen privaten Kanal erstellt: {new_channel.name}")
+                else:
+                    print(
+                        f"🚫 {member.name} ist einem anderen Voice-Channel beigetreten, kein neuer Channel wird erstellt.")
+
+        # **Leere Channels nach 5 Minuten automatisch löschen**
         if before.channel and before.channel.category and before.channel.category.name == "🎤 Private Channels":
             async with aiosqlite.connect("channels.db") as db:
-                row = await db.execute("SELECT channel_id FROM voice_channels WHERE channel_id = ?", (before.channel.id,))
+                row = await db.execute("SELECT channel_id FROM voice_channels WHERE channel_id = ?",
+                                       (before.channel.id,))
                 result = await row.fetchone()
 
             if result and len(before.channel.members) == 0:  # Kanal ist leer
