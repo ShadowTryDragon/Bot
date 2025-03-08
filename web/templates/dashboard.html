@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bot Dashboard</title>
+    <script>
+        async function saveSettings() {
+            let welcome_message = document.getElementById("welcome_message").value;
+            let log_channel_id = document.getElementById("log_channel_id").value;
+            let capslock_filter = document.getElementById("capslock_filter").checked;
+
+            let response = await fetch("/update_settings", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ welcome_message, log_channel_id, capslock_filter })
+            });
+
+            let result = await response.json();
+            alert(result.message);
+        }
+    </script>
+</head>
+<body>
+    <h1>Bot Einstellungen</h1>
+
+    <label>Willkommensnachricht:</label>
+    <input type="text" id="welcome_message" value="{{ settings[2] }}"><br>
+
+    <label>Log-Kanal ID:</label>
+    <input type="number" id="log_channel_id" value="{{ settings[7] }}"><br>
+
+    <label>Capslock-Filter:</label>
+    <input type="checkbox" id="capslock_filter" {% if settings[9] %}checked{% endif %}><br>
+
+    <button onclick="saveSettings()">💾 Speichern</button>
+</body>
+</html>

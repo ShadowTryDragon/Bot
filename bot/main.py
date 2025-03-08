@@ -1,7 +1,7 @@
 import os
 import discord
 from dotenv import load_dotenv
-
+import api_client
 from keep import keep_alive
 
 intents = discord.Intents.default()
@@ -26,6 +26,7 @@ bot.synced = False  # Initialisiere die Variable global
 @bot.event
 async def on_ready():
     await bot.sync_commands()  # Synchronisiert alle Slash-Commands
+    await api_client.update_bot_config()
     print(f"✅ {bot.user} ist online! Alle Slash-Commands wurden synchronisiert.")
 
 
@@ -38,12 +39,12 @@ async def on_ready():
 
 
 if __name__ == "__main__":
-    for filename in os.listdir("cogs"):
+    for filename in os.listdir("/Users/borisdekic/PycharmProjects/Bot/cogs"):
         if filename.endswith(".py"):
             bot.load_extension(f"cogs.{filename[:-3]}")
 
 
-load_dotenv('.env')  # Muss zuerst geladen werden!
+load_dotenv('/Users/borisdekic/PycharmProjects/Bot/.env')  # Muss zuerst geladen werden!
 TOKEN = os.getenv("TOKEN")
 
 if TOKEN is None:
