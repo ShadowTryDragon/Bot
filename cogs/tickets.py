@@ -374,14 +374,20 @@ class TicketDeleteConfirm(View):
         user = interaction.user
 
         if not self.channel:
-            return await interaction.response.send_message("⚠ Fehler: Dieses Ticket wurde bereits gelöscht.", ephemeral=True)
+            return await interaction.response.send_message("⚠ Fehler: Dieses Ticket wurde bereits gelöscht.",
+                                                           ephemeral=True)
 
         await self.channel.send("⚠ Dieses Ticket wird in **10 Sekunden** gelöscht.")
         await asyncio.sleep(10)
 
-        # **Nochmals prüfen, ob der Kanal existiert**
-        if self.channel:
-            await self.channel.delete()
+        # **Prüfen, ob der Kanal noch existiert**
+        if self.channel and interaction.guild.get_channel(self.channel.id):
+            try:
+                await self.channel.delete()
+            except discord.NotFound:
+                print(f"⚠ Ticket-Channel {self.channel.id} wurde bereits gelöscht.")
+        else:
+            print(f"⚠ Ticket-Channel {self.channel.id} existiert nicht mehr.")
 
         # **Nutzer per DM benachrichtigen**
         try:

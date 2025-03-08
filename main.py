@@ -1,9 +1,6 @@
 import os
 import discord
-
-
-
-
+from dotenv import load_dotenv
 
 intents = discord.Intents.default()
 intents.members = True
@@ -44,11 +41,12 @@ if __name__ == "__main__":
             bot.load_extension(f"cogs.{filename[:-3]}")
 
 
-import argparse
+load_dotenv('.env')  # Muss zuerst geladen werden!
+TOKEN = os.getenv("TOKEN")
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--token", required=True, help="Discord Bot Token")
-args = parser.parse_args()
+if TOKEN is None:
+    raise ValueError("❌ Bot-Token fehlt! Stelle sicher, dass die .env-Datei existiert und richtig ist.")
 
-TOKEN = args.token
 bot.run(TOKEN)
+
+
