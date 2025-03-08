@@ -1,7 +1,8 @@
 import os
+
 import discord
 from dotenv import load_dotenv
-from keep import keep_alive
+
 
 intents = discord.Intents.default()
 intents.members = True
@@ -47,7 +48,7 @@ TOKEN = os.getenv("TOKEN")
 
 if TOKEN is None:
     raise ValueError("❌ Bot-Token fehlt! Stelle sicher, dass die .env-Datei existiert und richtig ist.")
-keep_alive()  # Startet den Webserver
+
 bot.run(TOKEN)
 
 

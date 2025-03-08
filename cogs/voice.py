@@ -63,8 +63,9 @@ class PrivateVoice(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
-        """Fügt alle Server zur Datenbank hinzu, wenn der Bot startet."""
+        """Fügt alle Server zur Datenbank hinzu & entfernt nicht mehr existierende Voice-Channels."""
         await self.create_tables()
+
         async with aiosqlite.connect("channels.db") as db:
             for guild in self.bot.guilds:
                 await db.execute(
@@ -72,7 +73,27 @@ class PrivateVoice(commands.Cog):
                     (guild.id, guild.name)
                 )
             await db.commit()
+
         print("✅ Alle Server wurden zur Datenbank hinzugefügt.")
+
+        # **🔹 Entferne nicht existierende Voice-Channels**
+        async with aiosqlite.connect("channels.db") as db:
+            rows = await db.execute("SELECT channel_id FROM voice_channels")
+            voice_channels = await rows.fetchall()
+
+        deleted_channels = 0  # Debugging-Zähler
+
+        for channel_id, in voice_channels:
+            channel = self.bot.get_channel(channel_id)
+
+            if channel is None:  # Kanal existiert nicht mehr
+                async with aiosqlite.connect("channels.db") as db:
+                    await db.execute("DELETE FROM voice_channels WHERE channel_id = ?", (channel_id,))
+                    await db.commit()
+                print(f"🗑 Gelöschter Eintrag: Channel-ID {channel_id} existiert nicht mehr.")
+                deleted_channels += 1
+
+        print(f"🔍 Voice-Channel-Bereinigung abgeschlossen. {deleted_channels} nicht existierende Kanäle entfernt.")
 
     @commands.Cog.listener()
     async def on_guild_join(self, guild):
