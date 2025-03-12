@@ -231,7 +231,7 @@ class TicketSystem(commands.Cog):
             await db.execute("UPDATE servers SET text_setup = ? WHERE guild_id = ?", (setup_channel.id, guild.id))
             await db.commit()
 
-        embed = await self.get_ticket_embed(guild.id)  # Embed aus DB laden
+        embed = await self.get_ticket_embed(ctx.guild, ctx.author)  # ✅ FIXED: ctx.author als `user` übergeben
         view = TicketButton(self.bot)
 
         message = await setup_channel.send(embed=embed, view=view)
@@ -279,7 +279,7 @@ class TicketButton(View):
 
     @discord.ui.button(label="🎫 Ticket erstellen", style=discord.ButtonStyle.primary, custom_id="create_ticket")
     async def create_ticket(self, button: Button, interaction: discord.Interaction):
-        """Erstellt ein Ticket mit Buttons."""
+        """Erstellt ein Ticket mit den richtigen Berechtigungen für den Nutzer."""
         guild = interaction.guild
         user = interaction.user
 
@@ -297,10 +297,21 @@ class TicketButton(View):
             return await interaction.response.send_message("⚠ Du hast bereits ein offenes Ticket!", ephemeral=True)
 
         category = discord.utils.get(guild.categories, name="Tickets")
-        ticket_channel = await guild.create_text_channel(f"ticket-{user.name}", category=category)
+        if not category:
+            category = await guild.create_category("Tickets")  # Erstellt Kategorie, falls nicht vorhanden
 
-        # **Hier get_ticket_open_embed über das Cog aufrufen**
-        embed = await ticket_cog.get_ticket_open_embed(guild, user)  # ✅ FIXED!
+        # ✅ Ticket-Channel mit korrekten Berechtigungen erstellen
+        ticket_channel = await guild.create_text_channel(
+            f"ticket-{user.name}",
+            category=category,
+            overwrites={
+                guild.default_role: discord.PermissionOverwrite(read_messages=False),  # Blockiert andere User
+                user: discord.PermissionOverwrite(read_messages=True, send_messages=True, attach_files=True,
+                                                  embed_links=True)
+            }
+        )
+
+        embed = await ticket_cog.get_ticket_open_embed(guild, user)  # ✅ Ticket-Embed abrufen
         view = TicketActions(self.bot)
 
         message = await ticket_channel.send(embed=embed, view=view)
@@ -419,15 +430,24 @@ class TicketArchiveConfirm(View):
 
     @discord.ui.button(label="✅ Bestätigen", style=discord.ButtonStyle.green, custom_id="confirm_archive")
     async def confirm_archive(self, button: Button, interaction: discord.Interaction):
-        """Bestätigt das Archivieren des Tickets."""
+        """Bestätigt das Archivieren des Tickets & entzieht dem User die Rechte."""
         guild = interaction.guild
 
-        # Kategorie "Archivierte Tickets" erstellen, falls nicht vorhanden
+        # ✅ Kategorie "Archivierte Tickets" erstellen, falls nicht vorhanden
         archive_category = discord.utils.get(guild.categories, name="📁 Archivierte Tickets")
         if not archive_category:
             archive_category = await guild.create_category("📁 Archivierte Tickets")
 
-        # **Prüfen, ob das Ticket bereits archiviert ist**
+        async with aiosqlite.connect("channels.db") as db:
+            row = await db.execute("SELECT user_id FROM tickets WHERE channel_id = ?", (self.channel.id,))
+            ticket_owner_id = await row.fetchone()
+
+        if not ticket_owner_id:
+            return await interaction.response.send_message("⚠ Fehler: Ticket-Daten nicht gefunden!", ephemeral=True)
+
+        ticket_owner = guild.get_member(ticket_owner_id[0])  # ✅ Ticket-Ersteller abrufen
+
+        # ✅ Falls Ticket bereits archiviert ist, abbrechen
         async with aiosqlite.connect("channels.db") as db:
             row = await db.execute("SELECT status FROM tickets WHERE channel_id = ?", (self.channel.id,))
             ticket_status = await row.fetchone()
@@ -435,11 +455,13 @@ class TicketArchiveConfirm(View):
         if ticket_status and ticket_status[0] == "archived":
             return await interaction.response.send_message("⚠ Dieses Ticket wurde bereits archiviert!", ephemeral=True)
 
-        # Ticket verschieben
+        # ✅ Ticket verschieben & Rechte entfernen
         await self.channel.edit(category=archive_category)
+        await self.channel.set_permissions(ticket_owner, overwrite=discord.PermissionOverwrite(read_messages=False))
+
         await interaction.response.send_message("✅ Das Ticket wurde archiviert!", ephemeral=True)
 
-        # **Datenbank aktualisieren**
+        # ✅ Datenbank aktualisieren
         async with aiosqlite.connect("channels.db") as db:
             await db.execute("UPDATE tickets SET status = 'archived' WHERE channel_id = ?", (self.channel.id,))
             await db.commit()

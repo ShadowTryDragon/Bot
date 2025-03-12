@@ -1,0 +1,108 @@
+/* 🌙 Dark Mode für das Dashboard */
+body {
+    font-family: 'Arial', sans-serif;
+    background-color: #121212;
+    color: #ffffff;
+    text-align: center;
+    margin: 0;
+    padding: 0;
+}
+
+/* Container-Styling */
+.container {
+    max-width: 800px;
+    margin: 50px auto;
+    padding: 20px;
+    background: #1e1e1e;
+    border-radius: 10px;
+    box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.2);
+}
+
+/* Titel */
+h1 {
+    font-size: 32px;
+    margin-bottom: 10px;
+}
+
+/* Serverliste in 2 Spalten */
+.server-list {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr); /* 2 Spalten */
+    gap: 15px; /* Abstand zwischen den Servern */
+    padding: 0;
+    list-style: none;
+    justify-content: center;
+}
+
+.server-list li {
+    background: #2c2c2c;
+    padding: 15px;
+    border-radius: 5px;
+    font-size: 18px;
+    transition: background 0.3s ease;
+    text-align: center;
+}
+
+.server-list li:hover {
+    background: #007bff;
+    cursor: pointer;
+}
+
+/* Statusfarben */
+.status {
+    font-size: 20px;
+    font-weight: bold;
+    padding: 10px;
+    border-radius: 5px;
+    display: inline-block;
+}
+
+.online {
+    background-color: #4caf50;
+    color: white;
+}
+
+.offline {
+    background-color: #ff3b3b;
+    color: white;
+}
+
+/* Buttons */
+button, .btn {
+    display: inline-block;
+    padding: 10px 20px;
+    margin-top: 15px;
+    font-size: 16px;
+    font-weight: bold;
+    text-decoration: none;
+    color: white;
+    background: #007bff;
+    border: none;
+    border-radius: 5px;
+    transition: background 0.3s ease;
+    cursor: pointer;
+}
+
+button:hover, .btn:hover {
+    background: #0056b3;
+}
+
+/* Responsive Anpassungen */
+@media (max-width: 768px) {
+    .container {
+        width: 90%;
+        padding: 15px;
+    }
+
+    h1 {
+        font-size: 28px;
+    }
+
+    p {
+        font-size: 16px;
+    }
+
+    .server-list {
+        grid-template-columns: 1fr; /* 1 Spalte auf kleinen Bildschirmen */
+    }
+}

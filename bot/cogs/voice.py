@@ -1,7 +1,8 @@
+import asyncio
+
 import discord
 import aiosqlite
 from discord.ext import commands, tasks
-import asyncio
 
 class PrivateVoice(commands.Cog):
     def __init__(self, bot):
@@ -277,47 +278,49 @@ class PrivateVoice(commands.Cog):
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
-        """Erstellt einen privaten Kanal, wenn der User den Setup-Channel betritt, aber begrenzt auf 1 pro User."""
+        """Erstellt einen privaten Kanal nur im Setup-Channel und löscht leere Kanäle sicher."""
 
-        if after.channel and before.channel != after.channel:
+        # Verbindung zur Datenbank
+        async with aiosqlite.connect("channels.db") as db:
+            # Setup-Channel ID abrufen
+            row = await db.execute("SELECT voice_setup FROM servers WHERE guild_id = ?", (member.guild.id,))
+            setup_channel_id = await row.fetchone()
+
+        # Falls kein Setup-Channel in der DB existiert, beenden
+        if not setup_channel_id or not setup_channel_id[0]:
+            return
+
+        setup_channel_id = setup_channel_id[0]  # Extrahiere die ID aus dem Tuple
+
+        # **Wenn der User den Setup-Channel betritt**
+        if after.channel and after.channel.id == setup_channel_id:
             async with aiosqlite.connect("channels.db") as db:
-                # **Prüfen, ob der User bereits einen Kanal besitzt**
+                # Prüfen, ob der User bereits einen privaten Channel besitzt
                 row = await db.execute("SELECT channel_id FROM voice_channels WHERE user_id = ?", (member.id,))
                 existing_channel = await row.fetchone()
 
-                if existing_channel:
-                    await member.send(
-                        "⚠ Du hast bereits einen privaten Voice-Channel! Bitte verlasse ihn zuerst, bevor du einen neuen erstellst."
-                    )
-                    await member.move_to(None)  # User aus dem Voice-Channel kicken
-                    return
+            if existing_channel:
+                await member.send("⚠ Du hast bereits einen privaten Voice-Channel! Bitte verlasse ihn zuerst.")
+                await member.move_to(None)  # Kickt den User aus dem Setup-Channel
+                return
 
-                # **Setup-Channel aus der Datenbank holen**
-                row = await db.execute("SELECT voice_setup FROM servers WHERE guild_id = ?", (member.guild.id,))
-                result = await row.fetchone()
+            # **Neuen privaten Kanal erstellen**
+            new_channel = await after.channel.category.create_voice_channel(f"{member.name}'s Channel")
+            await member.move_to(new_channel)
 
-            if result:
-                setup_channel_id = result[0]
+            # Kanal in die Datenbank eintragen
+            async with aiosqlite.connect("channels.db") as db:
+                await db.execute(
+                    "INSERT INTO voice_channels (channel_id, channel_name, user_id, user_name, guild_id) VALUES (?, ?, ?, ?, ?)",
+                    (new_channel.id, new_channel.name, member.id, member.name, member.guild.id)
+                )
+                await db.commit()
 
-                # **Nur wenn der Nutzer den Setup-Channel betritt**
-                if after.channel.id == setup_channel_id:
-                    new_channel = await after.channel.category.create_voice_channel(f"{member.name}'s Channel")
-                    await member.move_to(new_channel)
+            print(f"🎤 {member.name} hat einen privaten Kanal erstellt: {new_channel.name}")
 
-                    # **Neuen Channel in der DB speichern**
-                    async with aiosqlite.connect("channels.db") as db:
-                        await db.execute(
-                            "INSERT INTO voice_channels (channel_id, channel_name, user_id, user_name, guild_id) VALUES (?, ?, ?, ?, ?)",
-                            (new_channel.id, new_channel.name, member.id, member.name, member.guild.id)
-                        )
-                        await db.commit()
+        # **Falls der User einen anderen Kanal betritt, nichts tun**
 
-                    print(f"🎤 {member.name} hat einen privaten Kanal erstellt: {new_channel.name}")
-                else:
-                    print(
-                        f"🚫 {member.name} ist einem anderen Voice-Channel beigetreten, kein neuer Channel wird erstellt.")
-
-        # **Leere Channels nach 5 Minuten automatisch löschen**
+        # **Prüfen, ob ein leerer Kanal gelöscht werden muss**
         if before.channel and before.channel.category and before.channel.category.name == "🎤 Private Channels":
             async with aiosqlite.connect("channels.db") as db:
                 row = await db.execute("SELECT channel_id FROM voice_channels WHERE channel_id = ?",
@@ -326,12 +329,23 @@ class PrivateVoice(commands.Cog):
 
             if result and len(before.channel.members) == 0:  # Kanal ist leer
                 await asyncio.sleep(300)  # 5 Minuten warten
-                if len(before.channel.members) == 0:  # Noch immer leer?
-                    await before.channel.delete()
-                    async with aiosqlite.connect("channels.db") as db:
-                        await db.execute("DELETE FROM voice_channels WHERE channel_id = ?", (before.channel.id,))
-                        await db.commit()
-                    print(f"🗑 Gelöschter Kanal: {before.channel.name}")
+                if len(before.channel.members) == 0:  # Immer noch leer?
+                    if self.bot.get_channel(before.channel.id):  # **Kanal existiert noch?**
+                        try:
+                            await before.channel.delete()
+                            async with aiosqlite.connect("channels.db") as db:
+                                await db.execute("DELETE FROM voice_channels WHERE channel_id = ?",
+                                                 (before.channel.id,))
+                                await db.commit()
+                            print(f"🗑 Gelöschter Kanal: {before.channel.name}")
+                        except discord.NotFound:
+                            print(f"⚠ Fehler: Kanal {before.channel.id} existiert nicht mehr (bereits gelöscht).")
+                        except discord.Forbidden:
+                            print(f"❌ Fehler: Keine Berechtigung zum Löschen von Kanal {before.channel.id}.")
+                        except Exception as e:
+                            print(f"⚠ Unerwarteter Fehler beim Löschen von Kanal {before.channel.id}: {e}")
+                    else:
+                        print(f"⚠ Kanal {before.channel.id} existiert nicht mehr und konnte nicht gelöscht werden.")
 
     @tasks.loop(minutes=1)
     async def check_empty_channels(self):

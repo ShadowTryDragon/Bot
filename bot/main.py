@@ -1,5 +1,4 @@
 import os
-
 import discord
 from dotenv import load_dotenv
 
@@ -38,7 +37,7 @@ async def on_ready():
 
 
 if __name__ == "__main__":
-    for filename in os.listdir("/Users/borisdekic/PycharmProjects/Bot/cogs"):
+    for filename in os.listdir("/bot/cogs"):
         if filename.endswith(".py"):
             bot.load_extension(f"cogs.{filename[:-3]}")
 
