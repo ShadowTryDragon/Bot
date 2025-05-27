@@ -52,7 +52,7 @@ class CommandLock(commands.Cog):
 
     @slash_command(name="lockallcommands",
                    description="Sperrt alle Commands in einem Channel außer geschützte Commands.")
-    @commands.has_permissions(administrator=True)
+    @discord.default_permissions(administrator=True)
     async def lock_all_commands(
             self,
             ctx,
@@ -72,7 +72,7 @@ class CommandLock(commands.Cog):
         await ctx.respond(f"✅ Alle Commands außer System-Befehle wurden in {channel.mention} gesperrt.", ephemeral=True)
 
     @slash_command(name="resetlocks", description="Entsperrt alle gesperrten Commands auf dem Server (Admin only).")
-    @commands.has_permissions(administrator=True)
+    @discord.default_permissions(administrator=True)
     async def reset_locks(self, ctx):
         """Entsperrt alle gesperrten Commands auf dem Server."""
         async with aiosqlite.connect("server_settings.db") as db:
@@ -81,7 +81,7 @@ class CommandLock(commands.Cog):
             await ctx.respond(f"Der Channel wurde wieder freigegeben")
 
     @slash_command(name="lockcommand", description="Sperrt einen Befehl in einem bestimmten Channel (Admin only).")
-    @commands.has_permissions(administrator=True)
+    @discord.default_permissions(administrator=True)
     async def lock_command(
         self,
         ctx,
@@ -107,7 +107,7 @@ class CommandLock(commands.Cog):
         await ctx.respond(f"✅ Der Command `{command_name}` wurde in {channel.mention} gesperrt.", ephemeral=True)
 
     @slash_command(name="unlockcommand", description="Entsperrt einen Befehl in einem bestimmten Channel (Admin only).")
-    @commands.has_permissions(administrator=True)
+    @discord.default_permissions(administrator=True)
     async def unlock_command(
         self,
         ctx,
